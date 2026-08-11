@@ -6,7 +6,7 @@ edition = "2024"
 [[bin]]
 name = "RVOS"
 path = "src/main.rs"
-harness = false    # <-- 關鍵：停用依賴 std 的預設測試框架
+harness = false    # <-- 停用依賴 std 的預設測試框架
 
 [dependencies]
 
