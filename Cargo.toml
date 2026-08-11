@@ -3,7 +3,15 @@ name = "RVOS"
 version = "0.1.0"
 edition = "2024"
 
+[[bin]]
+name = "RVOS"
+path = "src/main.rs"
+harness = false    # <-- 關鍵：停用依賴 std 的預設測試框架
+
 [dependencies]
 
-[build]
-target = "riscv64gc-unknown-none-elf"
+[profile.dev]
+panic = "abort"
+
+[profile.release]
+panic = "abort"
