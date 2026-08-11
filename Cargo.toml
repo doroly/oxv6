@@ -1,10 +1,10 @@
 [package]
-name = "RVOS"
+name = "oxv6"
 version = "0.1.0"
 edition = "2024"
 
 [[bin]]
-name = "RVOS"
+name = "oxv6"
 path = "src/main.rs"
 harness = false    # Disable the default test framework that relies on std
 
