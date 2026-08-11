@@ -4,5 +4,5 @@ incremental = false
 
 [target.riscv64gc-unknown-none-elf]
 rustflags = [
-    "-C", "link-arg=-Tsrc/linker.ld",
+    "-C", "link-arg=-Tsrc/kernel.ld",
 ]
