@@ -1,0 +1,9 @@
+[package]
+name = "RVOS"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+
+[build]
+target = "riscv64gc-unknown-none-elf"
