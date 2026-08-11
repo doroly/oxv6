@@ -1,87 +1,74 @@
-// 禁用 Rust 標準庫 (std)，因為裸機 OS 沒有作業系統底層 API
+// Disable the Rust standard library (`std`).
 #![no_std]
-// 禁用標準的 main 函數入口，改由我們定義的 _start 引導
+// Disable the default Rust entry point (`main`).
 #![no_main]
+
+mod mm;
+mod uart;
 
 use core::arch::global_asm;
 use core::panic::PanicInfo;
 
-// 嵌入引導彙編代碼：進行硬體棧空間配置並跳轉至 Rust 入口
+// Embed the boot assembly code.
+//
+// This code initializes the boot stack and transfers execution
+// to the Rust entry point (`rust_main`).
 global_asm!(
     r#"
-    .section .text.entry          # 指定將此段代碼放入 .text.entry 區塊（對應 kernel.ld 最開頭）
-    .globl _start                 # 導出 _start 符號，讓鏈接器能夠找到入口
+.section .text.entry          # Place startup code in the .text.entry section
+.globl _start                 # Export the _start symbol
+
 _start:
-    la sp, boot_stack_top         # 加載內存棧頂地址到 sp (Stack Pointer) 暫存器
-    call rust_main                # 呼叫 Rust 主函數 rust_main
+    la sp, boot_stack_top     # Load the boot stack top address into sp
+    call rust_main            # Jump to the Rust entry point
 
 loop:
-    j loop                        # 若 rust_main 意外返回，在此死循環
+    j loop                    # Halt here if rust_main unexpectedly returns
 
-    .section .bss.stack           # 將棧空間放入 .bss 段
-    .globl boot_stack_lower_bound
+
+.section .bss.stack           # Reserve stack space in the .bss section
+.globl boot_stack_lower_bound # Export the stack lower bound symbol
+
 boot_stack_lower_bound:
-    .space 4096 * 4               # 在內存中預留 16 KB (4 個 Page) 作為啟動棧空間
-    .globl boot_stack_top
-boot_stack_top:                   # 棧頂標記（RISC-V 棧是由高地址向低地址增長）
+    .space 4096 * 4            # Reserve 16 KiB for the boot stack
+
+.globl boot_stack_top          # Export the stack top symbol
+boot_stack_top:
 "#
 );
 
-/// 裸機環境下的 Panic 處理器
-/// 當程式發生 panic 時會自動呼叫此函數
+/// Handles panic events in a bare-metal environment.
+///
+/// In a `no_std` environment, there is no operating system to handle
+/// panic messages. This handler stops program execution by entering
+/// an infinite loop.
+///
+/// # Arguments
+///
+/// * `_info` - Contains panic information, such as the source location
+///   and panic message.
 #[panic_handler]
 fn panic(_info: &PanicInfo) -> ! {
-    // 發生嚴重錯誤時直接進入死循環
     loop {}
 }
 
-/// 通過 16550 UART 串口發送一個字元到控制台 (MMIO)
-fn putchar(ch: u8) {
-    // QEMU virt 板的 UART 映射基底地址
-    let uart = 0x1000_0000 as *mut u8;
-    unsafe {
-        // 揮發性寫入，防止編譯器優化掉硬體操作
-        uart.write_volatile(ch);
-    }
-}
-
-/// 從控制台讀取一個字元 (阻塞模式)
-fn getchar() -> u8 {
-    // QEMU virt 板的 UART 映射基底地址
-    let uart = 0x1000_0000 as *mut u8;
-    // LSR (Line Status Register) 位於偏移 5，第 0 位代表是否有數據可讀 (Data Ready)
-    // 輪詢等待，直到硬體接收到按鍵輸入
-    while unsafe { uart.add(5).read_volatile() & 1 == 0 } {}
-    // 從偏移 0 (RBR) 讀取字元
-    unsafe { uart.read_volatile() }
-}
-
-/// 印出字串工具函數
-fn print_str(s: &str) {
-    for byte in s.bytes() {
-        putchar(byte);
-    }
-}
-
-// 保持符號名稱為 rust_main，禁止 Rust 進行名稱重命名 (Mangle)
+/// Rust application entry point.
+///
+/// This function is called by the assembly startup code after the
+/// stack pointer has been initialized.
+///
+/// The function uses the C calling convention and never returns.
+///
+/// # Safety
+///
+/// This function is invoked directly by the hardware startup code.
+/// The caller must ensure that the runtime environment has been
+/// properly initialized before calling this function.
 #[unsafe(no_mangle)]
-// Rust 邏輯主入口，使用 C 呼叫約定，永不返回
 pub extern "C" fn rust_main() -> ! {
-    print_str("Hello, RVOS from Rust!\n");
-    print_str("RVOS Console Active. Type something:\n");
+    mm::test_kmem();
 
-    loop {
-        // 阻塞等待輸入
-        let ch = getchar();
+    uart::test_uart();
 
-        // 特殊字元處理：Enter 鍵處理
-        if ch == b'\r' {
-            putchar(b'\r');
-            // 終端按下 Enter 會發送 '\r'，需手動補上 '\n' 實現換行並歸位
-            putchar(b'\n');
-        } else {
-            // 一般字元直接回顯 (Echo) 到螢幕
-            putchar(ch);
-        }
-    }
+    loop {}
 }
