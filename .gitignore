@@ -1,2 +1,21 @@
 # Project exclude paths
-/target/
+# Build output
+target/
+
+# IDE
+.idea/
+
+# Rust backup files
+*.rs.bk
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Environment
+.env
+
+probe-rs/
+*.elf
+*.bin
+*.hex
