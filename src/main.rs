@@ -72,9 +72,6 @@ pub extern "C" fn rust_main() -> ! {
     mm::kmem_init();
 
     // Initialize and test the task infrastructure.
-    task::test_task_manager();
+    task::scheduler();
 
-    uart::test_uart();
-
-    loop {}
 }

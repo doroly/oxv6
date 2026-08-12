@@ -25,12 +25,14 @@ pub(crate) fn getchar() -> u8 {
     // QEMU virt machine UART base address.
     let uart = 0x1000_0000 as *mut u8;
 
-    // Line Status Register (LSR) is located at offset 5.
-    // Bit 0 indicates whether received data is available.
-    while unsafe { uart.add(5).read_volatile() & 1 == 0 } {}
+    unsafe {
+        // Line Status Register (LSR) is located at offset 5.
+        // Bit 0 indicates whether received data is available.
+        while uart.add(5).read_volatile() & 1 == 0 {}
 
-    // Read received byte from Receiver Buffer Register (RBR).
-    unsafe { uart.read_volatile() }
+        // Read received byte from Receiver Buffer Register (RBR).
+        uart.read_volatile()
+    }
 }
 
 /// Print a string to the UART console.
