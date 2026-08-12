@@ -159,60 +159,35 @@ unsafe impl Sync for SafeAllocator {}
 pub(crate) static KMEM: SafeAllocator =
     SafeAllocator(UnsafeCell::new(PhysicalMemoryAllocator::new()));
 
-/// Tests physical memory page allocation and deallocation.
+/// Initializes the global physical memory allocator.
 ///
-/// Verifies the basic functionality of [`PhysicalMemoryAllocator`], including:
-/// - System initialization with available RAM range `[ekernel, PHYSTOP)`.
-/// - Sequential allocation of multiple pages.
-/// - Page deallocation and subsequent LIFO (Last-In, First-Out) address reuse.
+/// Populates the free list with all available 4 KiB physical pages in the range
+/// `[ekernel, PHYSTOP)`.
 ///
 /// # Safety
 ///
-/// This function directly dereferences raw pointers obtained from `KMEM` and invokes
-/// unsafe allocation methods. It should only be run during early kernel initialization
-/// before multi-threading / concurrent tasks begin.
-pub(crate) fn test_kmem() {
+/// - Must be called exactly once during early single-hart kernel boot sequence.
+/// - Must be executed after memory layout (e.g., BSS section) is set up and before
+///   any physical page allocations take place.
+pub(crate) fn kmem_init() {
     use crate::uart::{print_hex, print_str};
 
-    print_str("RVOS Physical Memory Management Test\n");
+    // Obtain the boundary address marking the end of the kernel image.
+    #[allow(unused_unsafe)]
+    let ekernel_addr = unsafe { ptr::addr_of!(ekernel) as usize };
 
+    // Retrieve raw pointer to PhysicalMemoryAllocator from the UnsafeCell wrapper.
+    let kmem_ptr = KMEM.0.get();
+
+    // Populate the free list with memory in range [ekernel_addr, PHYSTOP).
     unsafe {
-        // Obtain the boundary address marking the end of the kernel image.
-        let ekernel_addr = ptr::addr_of!(ekernel) as usize;
-
-        print_str("Kernel end address (ekernel): ");
-        print_hex(ekernel_addr);
-        print_str("\n");
-
-        // Retrieve the raw pointer to PhysicalMemoryAllocator from the UnsafeCell wrapper.
-        let kmem_ptr = KMEM.0.get();
-
-        // Populate the free list with memory in the range [ekernel_addr, PHYSTOP).
         (*kmem_ptr).kinit(ekernel_addr, PHYSTOP);
-
-        print_str("Physical Memory Allocator initialized successfully!\n");
-
-        // Allocate two consecutive 4 KiB physical pages.
-        let page1 = (*kmem_ptr).kalloc();
-        let page2 = (*kmem_ptr).kalloc();
-
-        print_str("Allocated Page 1 at: ");
-        print_hex(page1 as usize);
-        print_str("\n");
-
-        print_str("Allocated Page 2 at: ");
-        print_hex(page2 as usize);
-        print_str("\n");
-
-        // Return page1 to the allocator.
-        print_str("Freeing Page 1...\n");
-        (*kmem_ptr).kfree(page1);
-
-        // Reallocate a page; due to LIFO head-insertion, page3 must reuse page1's address.
-        let page3 = (*kmem_ptr).kalloc();
-
-        print_str("Allocated Page 3 (should reuse Page 1): ");
-        print_hex(page3 as usize);
-        print_str("\n");
     }
+
+    // Output initialization log to UART console
+    print_str("kmem: physical memory allocator initialized [");
+    print_hex(ekernel_addr);
+    print_str(", ");
+    print_hex(PHYSTOP);
+    print_str(")\n");
 }

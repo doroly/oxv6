@@ -3,7 +3,9 @@
 // Disable the default Rust entry point (`main`).
 #![no_main]
 
+mod context;
 mod mm;
+mod task;
 mod uart;
 
 use core::arch::global_asm;
@@ -66,7 +68,11 @@ fn panic(_info: &PanicInfo) -> ! {
 /// properly initialized before calling this function.
 #[unsafe(no_mangle)]
 pub extern "C" fn rust_main() -> ! {
-    mm::test_kmem();
+    // Initialize the physical memory allocator
+    mm::kmem_init();
+
+    // Initialize and test the task infrastructure.
+    task::test_task_manager();
 
     uart::test_uart();
 

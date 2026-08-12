@@ -64,17 +64,7 @@ rustup target add riscv64gc-unknown-none-elf
 Run the kernel directly using `make`:
 
 ```bash
-make run
-```
-
-*(Or invoke `qemu-system-riscv64` manually if runner is not configured in `.cargo/config.toml`)*:
-
-```bash
-qemu-system-riscv64 \
-    -machine virt \
-    -nographic \
-    -bios none \
-    -kernel target/riscv64gc-unknown-none-elf/debug/oxv6
+make qemu
 ```
 
 ### 2. Exit QEMU
