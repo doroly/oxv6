@@ -65,17 +65,7 @@ rustup target add riscv64gc-unknown-none-elf
 在專案根目錄下直接使用 `make` 啟動：
 
 ```bash
-make run
-```
-
-*(若未配置 `.cargo/config.toml` Runner，亦可手動執行)*：
-
-```bash
-qemu-system-riscv64 \
-    -machine virt \
-    -nographic \
-    -bios none \
-    -kernel target/riscv64gc-unknown-none-elf/debug/oxv6
+make qemu
 ```
 
 ### 2. 退出 QEMU 模擬器

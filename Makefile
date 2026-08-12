@@ -1,4 +1,4 @@
-.PHONY: build run clean
+.PHONY: build run clean qemu
 
 build:
 	cargo build
@@ -12,3 +12,5 @@ run: build
 
 clean:
 	cargo clean
+
+qemu: clean run
