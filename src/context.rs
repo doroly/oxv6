@@ -1,21 +1,36 @@
 //! RISC-V task context.
 //!
-//! A task context stores the callee-saved registers that must be
-//! preserved when switching from one task to another.
-//!
-//! The actual context switch routine will be implemented in
-//! RISC-V assembly in a later stage.
+//! The context contains the callee-saved registers required by the
+//! RISC-V calling convention. It is used by the low-level context
+//! switch routine to suspend and resume kernel tasks.
 
-/// Saved CPU context for a RISC-V task.
+use core::arch::global_asm;
+
+/// Saved CPU context for a RISC-V kernel task.
 ///
-/// According to the RISC-V calling convention, the callee-saved
-/// registers are:
+/// The layout of this structure must exactly match the layout used
+/// by `context_switch` in RISC-V assembly.
 ///
-/// - `ra`
-/// - `sp`
-/// - `s0` ~ `s11`
+/// Offset:
 ///
-/// These registers must be preserved across a context switch.
+/// ```text
+/// 0   ra
+/// 8   sp
+/// 16  s0
+/// 24  s1
+/// 32  s2
+/// 40  s3
+/// 48  s4
+/// 56  s5
+/// 64  s6
+/// 72  s7
+/// 80  s8
+/// 88  s9
+/// 96  s10
+/// 104 s11
+/// ```
+///
+/// The total size is 112 bytes on RV64.
 #[repr(C)]
 #[derive(Debug, Clone, Copy)]
 pub(crate) struct Context {
@@ -25,7 +40,7 @@ pub(crate) struct Context {
     /// Stack pointer register.
     pub(crate) sp: usize,
 
-    /// Callee-saved register s0 / frame pointer.
+    /// Callee-saved register s0.
     pub(crate) s0: usize,
 
     /// Callee-saved register s1.
@@ -63,7 +78,7 @@ pub(crate) struct Context {
 }
 
 impl Context {
-    /// Creates an empty CPU context.
+    /// Creates an empty context.
     pub(crate) const fn zero() -> Self {
         Self {
             ra: 0,
@@ -83,11 +98,12 @@ impl Context {
         }
     }
 
-    /// Creates a context for a newly created task.
+    /// Creates the initial context of a new task.
     ///
-    /// The task starts execution at `entry` with `stack_top`
-    /// as its initial stack pointer.
-    pub(crate) fn new(entry: usize, stack_top: usize) -> Self {
+    /// When this context is restored for the first time,
+    /// `ret` will jump to `entry` and execution will continue
+    /// from the task entry function.
+    pub(crate) const fn new(entry: usize, stack_top: usize) -> Self {
         Self {
             ra: entry,
             sp: stack_top,
@@ -107,3 +123,54 @@ impl Context {
         }
     }
 }
+
+global_asm!(
+    r#"
+    .section .text                      # Place the following code in the .text section
+    .globl context_switch               # Export the symbol so it can be called from Rust
+    .type context_switch, @function     # Mark context_switch as a function
+
+context_switch:
+    # a0 = pointer to current Context
+    # a1 = pointer to next Context
+
+    # ---------- Save current task context ----------
+    sd ra,   0(a0)
+    sd sp,   8(a0)
+
+    sd s0,  16(a0)
+    sd s1,  24(a0)
+    sd s2,  32(a0)
+    sd s3,  40(a0)
+    sd s4,  48(a0)
+    sd s5,  56(a0)
+    sd s6,  64(a0)
+    sd s7,  72(a0)
+    sd s8,  80(a0)
+    sd s9,  88(a0)
+    sd s10, 96(a0)
+    sd s11,104(a0)
+
+    # ---------- Restore next task context ----------
+    ld ra,   0(a1)
+    ld sp,   8(a1)
+
+    ld s0,  16(a1)
+    ld s1,  24(a1)
+    ld s2,  32(a1)
+    ld s3,  40(a1)
+    ld s4,  48(a1)
+    ld s5,  56(a1)
+    ld s6,  64(a1)
+    ld s7,  72(a1)
+    ld s8,  80(a1)
+    ld s9,  88(a1)
+    ld s10, 96(a1)
+    ld s11,104(a1)
+
+    # Jump to the restored task (return address is now in ra)
+    ret
+
+    .size context_switch, .-context_switch
+"#
+);

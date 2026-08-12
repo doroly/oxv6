@@ -72,9 +72,7 @@ impl PhysicalMemoryAllocator {
 
         // Iterate over every page-sized block in the range and free it.
         while p + PGSIZE <= end {
-            unsafe {
-                self.kfree(p as *mut u8);
-            }
+            self.kfree(p as *mut u8);
 
             p += PGSIZE;
         }
@@ -92,9 +90,10 @@ impl PhysicalMemoryAllocator {
     ///
     /// - `pa` must point to a valid, page-aligned physical address.
     /// - The memory block at `pa` must no longer be referenced or used anywhere else in the system.
-    pub(crate) unsafe fn kfree(&mut self, pa: *mut u8) {
+    pub(crate) fn kfree(&mut self, pa: *mut u8) {
         let addr = pa as usize;
-        let ekernel_addr = ptr::addr_of!(ekernel) as usize;
+        #[allow(unused_unsafe)]
+        let ekernel_addr = unsafe { ptr::addr_of!(ekernel) as usize };
 
         // Validate that the physical address is page-aligned and within allowable memory bounds.
         if addr % PGSIZE != 0 || addr < ekernel_addr || addr >= PHYSTOP {
@@ -111,9 +110,8 @@ impl PhysicalMemoryAllocator {
         // Push the freed page onto the head of the singly-linked list.
         unsafe {
             (*r).next = self.head;
+            self.head = r;
         }
-
-        self.head = r;
     }
 
     /// Allocates a single 4 KiB physical memory page.
