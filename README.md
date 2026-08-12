@@ -19,7 +19,10 @@
 2. **Physical Memory Allocator (Frame Allocator)**
     - Manages 4 KiB physical pages using an intrusive singly-linked list (zero memory overhead).
     - Features memory poisoning (garbage filling) for debugging dangling pointers and uninitialized memory reads.
-
+3. **Cooperative Task Scheduler**
+    - Supports multiple kernel tasks with independent stacks and saved CPU contexts. 
+    - Provides voluntary task switching via yield_task(). 
+    - Performs full context switching through RISC‑V assembly (context_switch).
 ---
 
 ## Environment Setup (Ubuntu 20.04)
