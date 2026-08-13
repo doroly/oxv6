@@ -12,18 +12,28 @@
 - **Language**: Rust (`no_std` bare-metal environment)
 - **Environment**: Linux (Ubuntu 20.04 LTS recommended) / QEMU `virt`
 
-## Implemented Features
+## Features
 
-1. **UART Serial Driver**
-    - Implements basic UART 16550 output driver supporting string formatting and hexadecimal address printing.
-2. **Physical Memory Allocator (Frame Allocator)**
-    - Manages 4 KiB physical pages using an intrusive singly-linked list (zero memory overhead).
-    - Features memory poisoning (garbage filling) for debugging dangling pointers and uninitialized memory reads.
-3. **Cooperative Task Scheduler**
-    - Supports multiple kernel tasks with independent stacks and saved CPU contexts. 
-    - Provides voluntary task switching via yield_task(). 
-    - Performs full context switching through RISC‑V assembly (context_switch).
----
+### Implemented
+
+- [x] UART console driver
+- [x] RISC-V trap and interrupt handling
+- [x] Timer interrupt
+- [x] Physical memory page allocator
+- [x] Kernel task management
+- [x] Task context switching
+- [x] ~~Cooperative multitasking~~
+- [x] Preemptive multitasking
+
+### Future plans
+
+- [ ] Virtual memory management
+- [ ] SV39 page table
+- [ ] User mode support
+- [ ] System calls
+- [ ] Process management (fork, exec, exit, wait)
+- [ ] File system (inode, directory, file descriptor)
+- [ ] Multi-hart (multi-core) support
 
 ## Environment Setup (Ubuntu 20.04)
 

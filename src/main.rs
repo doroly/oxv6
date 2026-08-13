@@ -3,75 +3,59 @@
 // Disable the default Rust entry point (`main`).
 #![no_main]
 
-mod context;
+mod arch;
 mod mm;
 mod task;
 mod uart;
 
-use core::arch::global_asm;
+use crate::arch::riscv64::trap;
+use crate::uart::{print_hex, print_str};
 use core::panic::PanicInfo;
 
-// Embed the boot assembly code.
-//
-// This code initializes the boot stack and transfers execution
-// to the Rust entry point (`rust_main`).
-global_asm!(
-    r#"
-.section .text.entry          # Place startup code in the .text.entry section
-.globl _start                 # Export the _start symbol
-
-_start:
-    la sp, boot_stack_top     # Load the boot stack top address into sp
-    call rust_main            # Jump to the Rust entry point
-
-loop:
-    j loop                    # Halt here if rust_main unexpectedly returns
-
-
-.section .bss.stack           # Reserve stack space in the .bss section
-.globl boot_stack_lower_bound # Export the stack lower bound symbol
-
-boot_stack_lower_bound:
-    .space 4096 * 4            # Reserve 16 KiB for the boot stack
-
-.globl boot_stack_top          # Export the stack top symbol
-boot_stack_top:
-"#
-);
-
-/// Handles panic events in a bare-metal environment.
+/// Handles unrecoverable kernel errors in a bare-metal environment.
 ///
-/// In a `no_std` environment, there is no operating system to handle
-/// panic messages. This handler stops program execution by entering
-/// an infinite loop.
-///
-/// # Arguments
-///
-/// * `_info` - Contains panic information, such as the source location
-///   and panic message.
+/// This panic hook is used by the kernel when a fatal invariant fails or an internal
+/// assumption is violated. It prints the panic location and message through the UART
+/// console and then halts the CPU in an infinite spin loop.
 #[panic_handler]
-fn panic(_info: &PanicInfo) -> ! {
-    loop {}
+fn panic(info: &PanicInfo) -> ! {
+    print_str("\n================ [KERNEL PANIC] ================\n");
+
+    if let Some(location) = info.location() {
+        print_str("Location: ");
+        print_str(location.file());
+        print_str(":");
+        print_hex(location.line() as usize);
+        print_str(":");
+        print_hex(location.column() as usize);
+        print_str("\n");
+    }
+
+    if let Some(message) = info.message().as_str() {
+        print_str("Message:  ");
+        print_str(message);
+        print_str("\n");
+    }
+
+    print_str("================================================\n");
+
+    loop {
+        core::hint::spin_loop();
+    }
 }
 
-/// Rust application entry point.
+/// Kernel entry point reached from the assembly startup routine.
 ///
-/// This function is called by the assembly startup code after the
-/// stack pointer has been initialized.
-///
-/// The function uses the C calling convention and never returns.
-///
-/// # Safety
-///
-/// This function is invoked directly by the hardware startup code.
-/// The caller must ensure that the runtime environment has been
-/// properly initialized before calling this function.
+/// The boot code initializes the stack and branches into this function, which performs
+/// early platform setup before handing control to the scheduler. This function never returns.
 #[unsafe(no_mangle)]
 pub extern "C" fn rust_main() -> ! {
-    // Initialize the physical memory allocator
+    print_str("\n==============================\n");
+    print_str("        oxv6 Kernel\n");
+    print_str("==============================\n");
+    print_str("Privilege Mode: Supervisor\n");
+
+    trap::init();
     mm::kmem_init();
-
-    // Initialize and test the task infrastructure.
     task::scheduler();
-
 }
