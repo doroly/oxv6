@@ -1,92 +1,66 @@
-/*
- * Generate a 64-bit little-endian RISC-V ELF binary.
- */
+/* Linker script for oxv6 RISC-V 64 kernel. */
+
+/* Specify the output executable format as 64-bit Little-Endian RISC-V ELF. */
 OUTPUT_FORMAT("elf64-littleriscv")
 
-/*
- * Define the program entry point.
- * The CPU starts execution from the _start symbol.
- */
+/* Specify the target machine architecture. */
+OUTPUT_ARCH(riscv)
+
+/* Define the kernel entry point symbol (implemented in assembly entry code). */
 ENTRY(_start)
 
-/*
- * Kernel load address for the QEMU RISC-V virt machine.
- * OpenSBI occupies the lower memory region, so the kernel
- * is loaded at 0x80200000.
- */
+/* Define the base physical address where the kernel will be loaded.
+ * 0x80200000 is the standard entry address jumped to by OpenSBI on QEMU virt. */
 BASE_ADDRESS = 0x80200000;
-
 
 SECTIONS
 {
-    /*
-     * Set the starting address of the kernel image.
-     */
+    /* Set the location counter (.) to the kernel base address. */
     . = BASE_ADDRESS;
+
+    /* Export symbol marking the start address of the kernel image. */
     skernel = .;
 
-
-    /*
-     * Text section.
-     *
-     * Keep the startup assembly code (.text.entry) at the
-     * beginning of the kernel image, followed by Rust code.
-     */
-    .text : {
-        KEEP(*(.text.entry))
+    /* Executable code section, 4-byte aligned for RISC-V instruction boundary. */
+    .text : ALIGN(4)
+    {
+        /* Ensure the assembly entry point block is placed at the very beginning. */
+        *(.text.entry)
+        /* Include all other executable instructions. */
         *(.text .text.*)
     }
 
-
-    /*
-     * Read-only data section.
-     *
-     * Contains string literals, constant data, and other
-     * immutable objects.
-     */
-    .rodata : {
+    /* Read-only data section (e.g., string literals, constants). */
+    .rodata : ALIGN(4)
+    {
         *(.rodata .rodata.*)
     }
 
-
-    /*
-     * Initialized data section.
-     *
-     * Contains global and static variables with initial values.
-     */
-    .data : {
+    /* Initialized global and static variables. */
+    .data : ALIGN(4)
+    {
         *(.data .data.*)
     }
 
-
-    /*
-     * BSS section.
-     *
-     * Contains zero-initialized global/static variables and
-     * the boot stack space.
-     */
-    .bss : {
+    /* Uninitialized global and static variables (zero-initialized at boot). */
+    .bss : ALIGN(4)
+    {
+        *(COMMON)
         *(.bss .bss.*)
     }
 
-
-    /*
-     * Align the kernel end address to a 4KiB boundary.
-     */
+    /* Align the location counter to a 4 KiB (4096-byte) page boundary.
+     * Ensures the kernel end boundary is cleanly page-aligned for the page allocator. */
     . = ALIGN(4096);
 
-    /*
-     * Mark the end address of the kernel image.
-     */
+    /* Export symbol marking the end address of the kernel image. */
     ekernel = .;
 
-
-    /*
-     * Discard unnecessary unwind information.
-     *
-     * Bare-metal Rust does not require exception unwinding.
-     */
-    /DISCARD/ : {
+    /* Discard unneeded sections (e.g., C++ / Rust exception unwinding tables)
+     * to keep the kernel binary clean and compact for bare-metal boot. */
+    /DISCARD/ :
+    {
         *(.eh_frame)
+        *(.eh_frame_hdr)
     }
 }

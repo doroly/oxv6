@@ -1,95 +1,74 @@
-//! Physical memory management module.
+//! Physical memory management for the kernel.
 //!
-//! Implements a simple page allocator similar to xv6.
-//! Each free physical page stores a linked-list node inside
-//! its own memory area, avoiding additional allocation.
+//! The allocator is intentionally lightweight: each free 4 KiB page stores a linked-list node
+//! in its own memory region, so no extra metadata blocks are required.
 
 use core::cell::UnsafeCell;
 use core::ptr;
 
-/// Page size in bytes (4 KiB).
+/// The size of a physical page in bytes. The kernel uses 4 KiB pages.
 pub(crate) const PGSIZE: usize = 4096;
 
-/// Top of physical memory (end address of usable RAM).
-///
-/// QEMU `virt` machine provides 128 MiB physical memory in range `[0x8000_0000, 0x8800_0000)`.
+/// End address of usable physical RAM for the QEMU `virt` machine.
 pub(crate) const PHYSTOP: usize = 0x8800_0000;
 
 unsafe extern "C" {
-    /// End address of the kernel image, defined in `kernel.ld`.
+    /// Ending address of the kernel image, defined in the linker script.
     static ekernel: u8;
 }
 
-/// Rounds up the given memory address to the nearest 4KB (PGSIZE) page boundary.
-///
-/// # Logic
-/// 1. Adds `(PGSIZE - 1)` to trigger a carry into the page frame number bits
-///    if `addr` is not already page-aligned.
-/// 2. Clears the lower 12 bits (page offset) using bitwise AND with the bitmask `!(PGSIZE - 1)`.
+/// Rounds an address up to the next page boundary.
+#[inline]
 pub fn page_round_up(addr: usize) -> usize {
     (addr + PGSIZE - 1) & !(PGSIZE - 1)
 }
 
-/// A node in the intrusive free memory page linked list.
-///
-/// This structure is placed directly at the beginning of an unallocated
-/// 4KB physical memory page, allowing the allocator to maintain a free list
-/// with zero extra memory overhead.
+/// A free-page node stored at the beginning of each free physical page.
 #[repr(C)]
 pub struct Run {
-    /// Raw pointer pointing to the next available physical page (`Run` node).
-    /// Holds a null pointer if this is the end of the free list.
+    /// Pointer to the next free page in the intrusive list.
     pub next: *mut Run,
 }
 
-/// A physical memory page allocator.
-///
-/// Manages free 4 KiB memory pages using an intrusive singly-linked list.
+/// Physical page allocator built on a singly linked free list.
 pub(crate) struct PhysicalMemoryAllocator {
-    /// Pointer to the head of the free page list.
+    /// Head of the free-page list.
     head: *mut Run,
 }
 
 impl PhysicalMemoryAllocator {
-    /// Creates a new, uninitialized physical memory allocator.
+    /// Creates an allocator before any pages are registered.
     pub(crate) const fn new() -> Self {
         Self {
             head: ptr::null_mut(),
         }
     }
 
-    /// Initializes the physical memory allocator with a range of memory addresses.
-    ///
-    /// Divides the memory range `[start, end)` into 4 KiB pages and adds them to the free list.
+    /// Populates the free list with every page in `[start, end)`.
     ///
     /// # Safety
     ///
-    /// - `start` and `end` must represent a valid range of physical memory.
-    /// - Memory in `[start, end)` must be writable and not used by the kernel image or hardware devices.
+    /// The caller must ensure the region is valid physical RAM and does not overlap the kernel
+    /// image or device memory required by the platform.
     pub(crate) fn kinit(&mut self, start: usize, end: usize) {
         // Align the starting address up to the nearest 4 KiB page boundary.
-        let mut p = page_round_up(start);
+        let mut page = page_round_up(start);
 
         // Iterate over every page-sized block in the range and free it.
-        while p + PGSIZE <= end {
-            self.kfree(p as *mut u8);
-
-            p += PGSIZE;
+        while page + PGSIZE <= end {
+            self.kfree(page as *mut u8);
+            page += PGSIZE;
         }
     }
 
-    /// Frees a physical memory page, returning it to the allocator.
+    /// Returns a page to the allocator.
     ///
-    /// The freed page is prepended to the head of the free list.
+    /// The page is inserted at the head of the free list and is filled with a non-zero pattern to
+    /// help reveal dangling-pointer and uninitialized-memory bugs during debugging.
     ///
     /// # Panics
     ///
-    /// Panics if `pa` is not aligned to `PGSIZE` (4 KiB) or falls outside the valid range `[ekernel, PHYSTOP)`.
-    ///
-    /// # Safety
-    ///
-    /// - `pa` must point to a valid, page-aligned physical address.
-    /// - The memory block at `pa` must no longer be referenced or used anywhere else in the system.
+    /// Panics when the address is not page-aligned or is outside the valid heap range.
     pub(crate) fn kfree(&mut self, pa: *mut u8) {
         let addr = pa as usize;
         #[allow(unused_unsafe)]
@@ -102,71 +81,63 @@ impl PhysicalMemoryAllocator {
 
         // Fill freed memory with junk (0x01) to catch use-after-free bugs.
         unsafe {
-            ptr::write_bytes(pa, 1, PGSIZE);
-        }
-
-        let r = pa as *mut Run;
-
-        // Push the freed page onto the head of the singly-linked list.
-        unsafe {
+            ptr::write_bytes(pa, 0x01, PGSIZE);
+            let r = pa as *mut Run;
             (*r).next = self.head;
             self.head = r;
         }
     }
 
-    /// Allocates a single 4 KiB physical memory page.
+    /// Allocates one free 4 KiB page.
     ///
-    /// Returns a raw pointer to the allocated page, or null if no pages are available.
-    ///
-    /// # Safety
-    ///
-    /// The caller assumes ownership of the allocated page and must ensure accesses stay within 4 KiB bounds.
+    /// On success, the returned pointer owns a full page. The caller is responsible for using it
+    /// with the correct alignment and lifetime semantics.
+    #[inline]
     pub(crate) fn kalloc(&mut self) -> *mut u8 {
-        let r = self.head;
+        let page = self.head;
 
-        if !r.is_null() {
-            // Pop the top page off the free list.
+        if !page.is_null() {
             unsafe {
-                self.head = (*r).next;
-                // Fill allocated memory with junk (0x05) to catch uninitialized memory reads.
-                ptr::write_bytes(r as *mut u8, 5, PGSIZE);
+                self.head = (*page).next;
+                ptr::write_bytes(page as *mut u8, 0x05, PGSIZE);
             }
         }
 
-        r as *mut u8
+        page as *mut u8
     }
 }
-/// A wrapper around [`UnsafeCell`] that enables global interior mutability for the physical memory allocator.
-///
-/// In Rust, `static` variables are immutable when accessed across threads/cores.
-/// Wrapping [`PhysicalMemoryAllocator`] in [`UnsafeCell`] allows mutating the allocator
-/// state through a shared reference.
+
+/// Wrapper that enables interior mutability for the global allocator singleton.
 pub(crate) struct SafeAllocator(pub(crate) UnsafeCell<PhysicalMemoryAllocator>);
 
 /// # Safety
 ///
-/// Implementing [`Sync`] asserts to the compiler that `SafeAllocator` can be safely shared
-/// across CPU cores (harts).
-///
-/// The caller/kernel must ensure that accesses to the underlying [`PhysicalMemoryAllocator`]
-/// are synchronized (e.g., via spinlocks, disabling interrupts, or single-core initialization)
-/// to prevent data races and undefined behavior.
+/// `SafeAllocator` may be shared across CPU harts only if the surrounding code serializes access
+/// to the underlying allocator. This project uses a single-hart boot path during initialization.
 unsafe impl Sync for SafeAllocator {}
 
-/// The global singleton instance of the physical memory allocator.
+/// Global physical memory allocator for the kernel.
 pub(crate) static KMEM: SafeAllocator =
     SafeAllocator(UnsafeCell::new(PhysicalMemoryAllocator::new()));
 
-/// Initializes the global physical memory allocator.
+/// Initializes the kernel’s physical memory allocator.
 ///
-/// Populates the free list with all available 4 KiB physical pages in the range
-/// `[ekernel, PHYSTOP)`.
+/// This function determines the end address of the kernel image and uses it
+/// as the starting point for the free physical memory region. It then invokes
+/// the allocator’s `kinit` routine to populate the free list with all memory
+/// in the range `[ekernel, PHYSTOP)`. After initialization, it prints the
+/// memory range used to set up the allocator for debugging purposes.
 ///
 /// # Safety
 ///
-/// - Must be called exactly once during early single-hart kernel boot sequence.
-/// - Must be executed after memory layout (e.g., BSS section) is set up and before
-///   any physical page allocations take place.
+/// This function performs unsafe operations when accessing the global memory
+/// allocator and invoking `kinit`, which manipulates raw physical memory.
+/// These operations must be used carefully to maintain memory correctness.
+///
+/// # Effects
+///
+/// After completion, the global physical memory allocator is ready to serve
+/// kernel memory allocation requests.
 pub(crate) fn kmem_init() {
     use crate::uart::{print_hex, print_str};
 
@@ -182,7 +153,6 @@ pub(crate) fn kmem_init() {
         (*kmem_ptr).kinit(ekernel_addr, PHYSTOP);
     }
 
-    // Output initialization log to UART console
     print_str("kmem: physical memory allocator initialized [");
     print_hex(ekernel_addr);
     print_str(", ");

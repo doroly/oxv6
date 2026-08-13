@@ -1,10 +1,9 @@
-//! RISC-V task context.
-//!
-//! The context contains the callee-saved registers required by the
-//! RISC-V calling convention. It is used by the low-level context
-//! switch routine to suspend and resume kernel tasks.
+#![allow(dead_code)]
 
-use core::arch::global_asm;
+//! Saved task context for RISC-V kernel threads.
+//!
+//! The kernel stores the callee-saved registers required by the RISC-V ABI in this structure
+//! so it can suspend and resume tasks without losing their execution state.
 
 /// Saved CPU context for a RISC-V kernel task.
 ///
@@ -40,40 +39,18 @@ pub(crate) struct Context {
     /// Stack pointer register.
     pub(crate) sp: usize,
 
-    /// Callee-saved register s0.
+    /// Callee-saved register.
     pub(crate) s0: usize,
-
-    /// Callee-saved register s1.
     pub(crate) s1: usize,
-
-    /// Callee-saved register s2.
     pub(crate) s2: usize,
-
-    /// Callee-saved register s3.
     pub(crate) s3: usize,
-
-    /// Callee-saved register s4.
     pub(crate) s4: usize,
-
-    /// Callee-saved register s5.
     pub(crate) s5: usize,
-
-    /// Callee-saved register s6.
     pub(crate) s6: usize,
-
-    /// Callee-saved register s7.
     pub(crate) s7: usize,
-
-    /// Callee-saved register s8.
     pub(crate) s8: usize,
-
-    /// Callee-saved register s9.
     pub(crate) s9: usize,
-
-    /// Callee-saved register s10.
     pub(crate) s10: usize,
-
-    /// Callee-saved register s11.
     pub(crate) s11: usize,
 }
 
@@ -124,7 +101,7 @@ impl Context {
     }
 }
 
-global_asm!(
+core::arch::global_asm!(
     r#"
     .section .text                      # Place the following code in the .text section
     .globl context_switch               # Export the symbol so it can be called from Rust
@@ -170,7 +147,33 @@ context_switch:
 
     # Jump to the restored task (return address is now in ra)
     ret
-
-    .size context_switch, .-context_switch
 "#
 );
+
+// Low-level assembly routine for switching between two RISC-V task contexts.
+//
+// This routine saves the current task's callee-saved registers and stack pointer,
+// then restores the target task's saved state before resuming execution at its
+// saved return address.
+unsafe extern "C" {
+    /// Performs a context switch between two RISC-V task contexts.
+    ///
+    /// # Safety
+    ///
+    /// This function is unsafe because it performs low-level context switching,
+    /// which can lead to undefined behavior if the provided pointers are invalid
+    /// or if the contexts are not properly initialized. The caller must ensure that
+    /// `current` points to a valid `Context` structure for the currently running task,
+    /// and that `next` points to a valid `Context` structure for the task to switch to.
+    ///
+    /// The caller must also ensure that the stack pointers in both contexts are valid
+    /// and that the tasks are in a state where they can be safely switched.
+    fn context_switch(current: *mut Context, next: *const Context);
+}
+
+/// Swaps execution from the current task context to the target task context.
+pub(crate) fn switch(current: *mut Context, next: *const Context) {
+    unsafe {
+        context_switch(current, next);
+    }
+}
