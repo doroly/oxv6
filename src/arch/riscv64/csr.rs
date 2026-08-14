@@ -13,6 +13,9 @@ pub(crate) const SSTATUS_SIE: usize = 1 << 1;
 /// `sstatus.SPIE`.
 pub(crate) const SSTATUS_SPIE: usize = 1 << 5;
 
+/// Constant for Supervisor External Interrupt Enable bit (SEIE, bit 9) in `sie`.
+pub(crate) const SIE_SEIE: usize = 1 << 9;
+
 /// Supervisor timer interrupt enable a bit in `sie`.
 pub(crate) const SIE_STIE: usize = 1 << 5;
 
@@ -57,6 +60,30 @@ pub(crate) fn disable_interrupts() {
         asm!(
         "csrc sstatus, {}",
         in(reg) SSTATUS_SIE,
+        options(nomem, nostack, preserves_flags),
+        );
+    }
+}
+
+/// Enable Supervisor external interrupts.
+#[inline]
+pub(crate) fn enable_external_interrupt() {
+    unsafe {
+        asm!(
+        "csrs sie, {}",
+        in(reg) SIE_SEIE,
+        options(nomem, nostack, preserves_flags),
+        );
+    }
+}
+
+/// Disable Supervisor external interrupts.
+#[inline]
+pub(crate) fn disable_external_interrupt() {
+    unsafe {
+        asm!(
+        "csrc sie, {}",
+        in(reg) SIE_SEIE,
         options(nomem, nostack, preserves_flags),
         );
     }

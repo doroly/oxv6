@@ -1,82 +1,104 @@
 //! Console I/O for the QEMU `virt` machine UART.
 //!
-//! The driver exposes a minimal serial interface for early kernel diagnostics and debugging. It
-//! targets the common NS16550-compatible UART mapped at `0x1000_0000` on the QEMU virt platform.
+//! Exposes a minimal serial interface for early kernel diagnostics and debugging using an
+//! NS16550-compatible UART mapped at physical address `0x1000_0000`.
 
-/// Sends a single byte to the UART transmitter.
+use core::fmt::{self, Write};
+use core::ptr;
+
+/// Base MMIO physical address for the 16550A UART controller.
+const UART_BASE: usize = 0x1000_0000;
+
+/// Register offsets.
+const RHR: usize = 0; // Receive Holding Register (read-only)
+const THR: usize = 0; // Transmit Holding Register (write-only)
+const IER: usize = 1; // Interrupt Enable Register
+const LSR: usize = 5; // Line Status Register
+
+/// Register bit masks.
+const IER_RX_ENABLE: u8 = 1 << 0; // Enable Receiver Data Available Interrupt
+const LSR_RX_READY: u8 = 1 << 0; // Receiver Data Ready Flag
+
+/// Computes a raw pointer to a UART register at the given offset.
+#[inline]
+fn reg_ptr(offset: usize) -> *mut u8 {
+    (UART_BASE + offset) as *mut u8
+}
+
+/// Zero-sized type implementing [`Write`] to enable formatted output (`write!`/`writeln!`).
+pub(crate) struct UartWriter;
+
+impl Write for UartWriter {
+    fn write_str(&mut self, s: &str) -> fmt::Result {
+        for byte in s.bytes() {
+            putchar(byte);
+        }
+        Ok(())
+    }
+}
+
+/// Internal helper function used by `print!` and `println!` macros.
+pub(crate) fn _print(args: fmt::Arguments) {
+    let _ = UartWriter.write_fmt(args);
+}
+
+/// Prints formatted text to the UART console.
+#[macro_export]
+macro_rules! print {
+    ($($arg:tt)*) => {
+        $crate::uart::_print(format_args!($($arg)*))
+    };
+}
+
+/// Prints formatted text to the UART console with an appended newline.
+#[macro_export]
+macro_rules! println {
+    () => {
+        $crate::print!("\n")
+    };
+    ($fmt:expr) => {
+        $crate::print!(concat!($fmt, "\n"))
+    };
+    ($fmt:expr, $($arg:tt)*) => {
+        $crate::print!(concat!($fmt, "\n"), $($arg)*)
+    };
+}
+
+/// Initializes UART interrupts for receiving characters.
+pub(crate) fn init() {
+    unsafe {
+        ptr::write_volatile(reg_ptr(IER), IER_RX_ENABLE);
+    }
+}
+
+/// Transmits a single byte to the UART serial port.
 #[inline]
 pub(crate) fn putchar(ch: u8) {
-    let uart = 0x1000_0000 as *mut u8;
-
     unsafe {
-        uart.write_volatile(ch);
+        ptr::write_volatile(reg_ptr(THR), ch);
     }
 }
 
-/// Reads a single byte from the UART receiver in blocking mode.
+/// Attempts to read a single byte from the UART receiver buffer.
 ///
-/// This function waits until the receive-data-ready bit is set in the UART line status register
-/// before returning the next byte.
-pub(crate) fn getchar() -> u8 {
-    let uart = 0x1000_0000 as *mut u8;
-
-    unsafe {
-        while uart.add(5).read_volatile() & 1 == 0 {}
-        uart.read_volatile()
-    }
-}
-
-/// Prints a Rust string to the UART console.
+/// Returns `Some(u8)` if a character is available, or `None` otherwise.
 #[inline]
-pub(crate) fn print_str(s: &str) {
-    for byte in s.bytes() {
-        putchar(byte);
-    }
-}
-
-/// Prints an integer value in hexadecimal format, prefixed with `0x`.
-pub(crate) fn print_hex(mut value: usize) {
-    print_str("0x");
-
-    if value == 0 {
-        putchar(b'0');
-        return;
-    }
-
-    let mut buffer = [0u8; 16];
-    let mut index = 0;
-
-    while value > 0 {
-        let digit = (value & 0xF) as u8;
-        buffer[index] = if digit < 10 {
-            b'0' + digit
+pub(crate) fn getchar() -> Option<u8> {
+    unsafe {
+        let lsr = ptr::read_volatile(reg_ptr(LSR));
+        if (lsr & LSR_RX_READY) != 0 {
+            Some(ptr::read_volatile(reg_ptr(RHR)))
         } else {
-            b'a' + (digit - 10)
-        };
-        value >>= 4;
-        index += 1;
-    }
-
-    while index > 0 {
-        index -= 1;
-        putchar(buffer[index]);
-    }
-}
-
-/// A small echo loop used for basic UART validation and interactive debugging.
-#[allow(dead_code)]
-pub(crate) fn test_uart() {
-    print_str("Hello, RVOS from Rust!\n");
-    print_str("RVOS Console Active. Type something:\n");
-
-    loop {
-        let ch = getchar();
-
-        if ch == b'\r' {
-            putchar(b'\r');
-            putchar(b'\n');
-        } else {
-            putchar(ch);
+            None
         }
+    }
+}
+
+/// Handles UART receive interrupts.
+///
+/// Drains all available incoming bytes from the hardware buffer and echoes them back.
+pub(crate) fn handle_interrupt() {
+    while let Some(ch) = getchar() {
+        putchar(ch);
     }
 }

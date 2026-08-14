@@ -19,10 +19,11 @@
 - [x] UART console driver
 - [x] RISC-V trap and interrupt handling
 - [x] Timer interrupt
+- [x] External hardware interrupts
 - [x] Physical memory page allocator
 - [x] Kernel task management
 - [x] Task context switching
-- [x] ~~Cooperative multitasking~~
+- [x] ~~Cooperative multitasking (deprecated)~~
 - [x] Preemptive multitasking
 
 ### Future plans
