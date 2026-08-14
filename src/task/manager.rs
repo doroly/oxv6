@@ -1,9 +1,8 @@
 #![allow(dead_code)]
 
-//! Task management for a minimal timer-preemptive scheduler.
+//! Task management and round-robin scheduler for kernel threads.
 //!
-//! After bootstrapping into the first task, task switching only happens in the timer-interrupt
-//! path (`trap::rust_trap_handler -> task::timer_tick`).
+//! Preemptive task switching is driven by supervisor timer interrupts.
 
 use crate::arch::riscv64::context::Context;
 use crate::arch::riscv64::csr::{SSTATUS_SPIE, SSTATUS_SPP, enable_interrupts};
@@ -39,7 +38,7 @@ pub(crate) enum TaskState {
     Zombie,
 }
 
-/// A single task-control block.
+/// A single task-control block (TCB).
 pub(crate) struct Task {
     /// Stable integer identifier assigned at creation time.
     pub(crate) pid: TaskId,
@@ -197,12 +196,7 @@ pub(crate) fn current_task() -> Option<TaskId> {
 
 /// Called by the trap handler on every supervisor timer interrupt.
 ///
-/// Implements a round-robin scheduler:
-/// 1. Saves current task's trap frame pointer and transitions state to `Runnable`.
-/// 2. Searches for the next `Runnable` task.
-/// 3. Switches to the selected task by returning its saved trap frame pointer.
-///
-/// If no other task is runnable, execution continues with the current task.
+/// Implements a round-robin scheduler.
 ///
 /// # Safety
 ///
@@ -266,13 +260,13 @@ pub(crate) fn task2() -> ! {
 pub(crate) fn init() {
     let manager = TASK_MANAGER.get_mut();
 
-    // Allocate kernel stacks.
-    let stack1 = unsafe { (*KMEM.0.get()).kalloc() };
+    // Allocate kernel stacks through updated MM interface.
+    let stack1 = KMEM.get_mut().kalloc();
     if stack1.is_null() {
         panic!("scheduler: failed to allocate stack1");
     }
 
-    let stack2 = unsafe { (*KMEM.0.get()).kalloc() };
+    let stack2 = KMEM.get_mut().kalloc();
     if stack2.is_null() {
         panic!("scheduler: failed to allocate stack2");
     }

@@ -4,11 +4,12 @@
 #![no_main]
 
 mod arch;
+mod drivers;
 mod mm;
 mod task;
-mod uart;
 
-use crate::arch::riscv64::{plic, trap};
+use crate::arch::riscv64::trap;
+use crate::drivers::{plic, uart};
 use core::panic::PanicInfo;
 
 /// Handles unrecoverable kernel errors in a bare-metal environment.

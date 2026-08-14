@@ -12,7 +12,8 @@
 //! `TrapFrame` allocated on the stack. The trap handler processes the event (e.g., timer
 //! preemption) and returns a pointer to the `TrapFrame` that should be restored next.
 
-use crate::arch::riscv64::{csr, plic, timer};
+use crate::arch::riscv64::{csr, timer};
+use crate::drivers::plic;
 use crate::println;
 
 /// Register context saved when entering a Supervisor-mode trap.

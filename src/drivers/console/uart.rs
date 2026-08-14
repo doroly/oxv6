@@ -46,7 +46,7 @@ pub(crate) fn _print(args: fmt::Arguments) {
 #[macro_export]
 macro_rules! print {
     ($($arg:tt)*) => {
-        $crate::uart::_print(format_args!($($arg)*))
+        $crate::drivers::uart::_print(format_args!($($arg)*))
     };
 }
 

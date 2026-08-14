@@ -20,21 +20,29 @@ unsafe extern "C" {
 
 /// Helper function to retrieve the kernel boundary address.
 #[inline]
-fn ekernel_addr() -> usize {
+pub(crate) fn ekernel_addr() -> usize {
     #[allow(unused_unsafe)]
-    unsafe { ptr::addr_of!(ekernel) as usize }
+    unsafe {
+        ptr::addr_of!(ekernel) as usize
+    }
 }
 
 /// Rounds a physical address up to the next 4 KiB page boundary.
 #[inline]
-pub fn page_round_up(addr: usize) -> usize {
+pub(crate) fn page_round_up(addr: usize) -> usize {
     (addr + PGSIZE - 1) & !(PGSIZE - 1)
+}
+
+/// Rounds a physical address down to the nearest 4 KiB page boundary.
+#[inline]
+pub(crate) fn page_round_down(addr: usize) -> usize {
+    addr & !(PGSIZE - 1)
 }
 
 /// Intrusive linked-list node stored at the start of each free page.
 #[repr(C)]
-pub struct Run {
-    pub next: *mut Run,
+pub(crate) struct Run {
+    pub(crate) next: *mut Run,
 }
 
 /// Physical page allocator based on a singly linked free list.
@@ -115,6 +123,18 @@ pub(crate) struct SafeAllocator(pub(crate) UnsafeCell<PhysicalMemoryAllocator>);
 
 unsafe impl Sync for SafeAllocator {}
 
+impl SafeAllocator {
+    /// Returns a mutable reference to the inner `PhysicalMemoryAllocator`.
+    ///
+    /// # Safety
+    ///
+    /// Caller must guarantee thread-safe access (e.g., single core or lock held).
+    #[inline]
+    pub(crate) fn get_mut(&self) -> &mut PhysicalMemoryAllocator {
+        unsafe { &mut *self.0.get() }
+    }
+}
+
 /// Global physical memory allocator instance.
 pub(crate) static KMEM: SafeAllocator =
     SafeAllocator(UnsafeCell::new(PhysicalMemoryAllocator::new()));
@@ -125,9 +145,7 @@ pub(crate) static KMEM: SafeAllocator =
 pub(crate) fn kmem_init() {
     let start = ekernel_addr();
 
-    unsafe {
-        (*KMEM.0.get()).kinit(start, PHYSTOP);
-    }
+    KMEM.get_mut().kinit(start, PHYSTOP);
 
     println!(
         "kmem: physical memory allocator initialized [{:#018x}, {:#018x})",
