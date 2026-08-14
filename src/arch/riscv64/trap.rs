@@ -15,6 +15,7 @@
 use crate::arch::riscv64::{csr, timer};
 use crate::drivers::plic;
 use crate::println;
+use core::arch::asm;
 
 /// Register context saved when entering a Supervisor-mode trap.
 ///
@@ -311,26 +312,45 @@ pub extern "C" fn rust_trap_handler(frame: &mut TrapFrame) -> *mut TrapFrame {
     }
 }
 
-/// Dispatches external interrupts routed through the PLIC.
-fn handle_external_interrupt() {
-    let irq = plic::claim();
+/// Reads the thread pointer (`tp`) register to obtain the current Hart ID.
+#[inline]
+fn current_hartid() -> usize {
+    let hartid: usize;
+    unsafe {
+        asm!(
+        "mv {}, tp",
+        out(reg) hartid,
+        options(nomem, nostack, preserves_flags)
+        );
+    }
+    hartid
+}
+
+/// Handles external interrupts delivered by the PLIC for the active hart.
+pub(crate) fn handle_external_interrupt() {
+    // 1. Obtain the executing hart ID to access hart-specific PLIC contexts
+    let hartid = current_hartid();
+
+    // 2. Claim the highest priority pending interrupt for this hart
+    let irq = plic::claim(hartid);
 
     match irq {
         plic::UART0_IRQ => {
-            crate::uart::handle_interrupt();
+            crate::drivers::uart::handle_interrupt();
         }
         plic::VIRTIO0_IRQ => {
-            println!("[VirtIO interrupt]");
+            println!("[Hart {}] VirtIO interrupt received", hartid);
         }
         0 => {
-            // No pending interrupt.
+            // Spurious or no pending interrupt for this hart
         }
         _ => {
-            println!("[Unknown external IRQ: {:#x}]", irq);
+            println!("[Hart {}] Unknown external IRQ: {:#x}", hartid, irq);
         }
     }
 
+    // 3. Complete the interrupt to allow future IRQs on this hart
     if irq != 0 {
-        plic::complete(irq);
+        plic::complete(hartid, irq);
     }
 }

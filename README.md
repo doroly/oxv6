@@ -25,6 +25,8 @@
 - [x] Task context switching
 - [x] ~~Cooperative multitasking (deprecated)~~
 - [x] Preemptive multitasking
+- [x] Multihart
+- [x] Spinlock
 
 ### Future plans
 

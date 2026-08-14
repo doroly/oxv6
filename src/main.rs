@@ -7,10 +7,14 @@ mod arch;
 mod drivers;
 mod mm;
 mod task;
+mod sync;
 
-use crate::arch::riscv64::trap;
 use crate::drivers::{plic, uart};
 use core::panic::PanicInfo;
+use core::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
+use crate::arch::riscv64::sbi::sbi_hart_start;
+use core::arch::asm;
+use arch::riscv64::boot::{_start, MAX_HARTS};
 
 /// Handles unrecoverable kernel errors in a bare-metal environment.
 ///
@@ -41,34 +45,69 @@ fn panic(info: &PanicInfo) -> ! {
     }
 }
 
+/// Flag indicating that primary hart initialization is complete.
+static STARTED: AtomicBool = AtomicBool::new(false);
+/// Hart elected as primary bootstrap core.
+static PRIMARY_HART: AtomicUsize = AtomicUsize::new(usize::MAX);
+
 /// Kernel entry point reached from the assembly startup routine.
 ///
 /// The boot code initializes the stack and branches into this function, which performs
 /// early platform setup before handing control to the scheduler. This function never returns.
 #[unsafe(no_mangle)]
-pub extern "C" fn rust_main() -> ! {
-    println!("\n==============================");
-    println!("        oxv6 Kernel");
-    println!("==============================\n");
-    println!("Privilege Mode: Supervisor");
+pub extern "C" fn rust_main(hartid: usize) -> ! {
+    let is_primary = PRIMARY_HART
+        .compare_exchange(usize::MAX, hartid, Ordering::AcqRel, Ordering::Acquire)
+        .is_ok();
 
-    // 1. Initialize physical memory allocator.
-    mm::kmem_init();
+    if is_primary {
+        // --- Primary Hart (Boot Hart) ---
+        uart::init();
+        println!("\n==============================");
+        println!("        oxv6 Kernel");
+        println!("==============================\n");
+        println!("Privilege Mode: Supervisor");
+        println!("\n[Hart {}] Booting oxv6 multi-core kernel...", hartid);
 
-    // 5. Install the trap handler.
-    trap::init();
+        plic::init();
+        mm::kmem_init();
+        task::init();
 
-    // 3. Initialize the Platform-Level Interrupt Controller.
-    plic::init();
+        println!(
+            "[Hart {}] Initialization complete. Waking up secondary harts...",
+            hartid
+        );
 
-    // 4. Initialize UART receive interrupts.
-    uart::init();
+        // Release other Secondary Harts
+        STARTED.store(true, Ordering::Release);
 
-    println!("Hardware & Interrupt subsystem initialized.");
+        // Send SBI call to wake up secondary harts via OpenSBI HSM extension
+        for target_hart in 0..MAX_HARTS {
+            if target_hart != hartid {
+                sbi_hart_start(target_hart, _start as *const () as usize, 0);
+            }
+        }
+    } else {
+        // --- Secondary Harts (Hart 1, 2, 3...) ---
+        // Wait for Hart 0 to complete global hardware and memory initialization
+        while !STARTED.load(Ordering::Acquire) {
+            core::hint::spin_loop();
+        }
 
-    // 2. Initialize task subsystem.
-    task::init();
+        println!("[Hart {}] Secondary hart online!", hartid);
+    }
 
-    // 7. Start task scheduling.
-    task::scheduler();
+    // Per-hart local interrupt routing and trap setup.
+    plic::init_hart(hartid);
+    arch::riscv64::trap::init();
+
+    if is_primary {
+        task::scheduler();
+    }
+
+    loop {
+        unsafe {
+            asm!("wfi", options(nomem, nostack, preserves_flags));
+        }
+    }
 }

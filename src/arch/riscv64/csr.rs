@@ -6,6 +6,8 @@
 //! traps, interrupts, and the current execution state in S-mode.
 
 use core::arch::asm;
+use core::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
+use crate::arch::riscv64::boot::MAX_HARTS;
 
 /// `sstatus.SIE`.
 pub(crate) const SSTATUS_SIE: usize = 1 << 1;
@@ -315,4 +317,70 @@ pub(crate) unsafe fn write_satp(value: usize) {
         options(nomem, nostack, preserves_flags),
         );
     }
+}
+
+/// Per-hart nesting counter for interrupt disable depth.
+/// Tracks how many times interrupts have been disabled on each hart.
+static NOFF: [AtomicUsize; MAX_HARTS] = [const { AtomicUsize::new(0) }; MAX_HARTS];
+
+/// Per-hart flag indicating whether interrupts were enabled before being disabled.
+/// Stores the interrupt state prior to the first `push_off` call.
+static INTENA: [AtomicBool; MAX_HARTS] = [const { AtomicBool::new(false) }; MAX_HARTS];
+
+/// Disables local supervisor interrupts and increments nesting count.
+///
+/// This function is used to implement interrupt-safe critical sections.
+/// It saves the current interrupt state on the first call and disables interrupts.
+/// Subsequent calls increment a nesting counter without changing interrupt state.
+/// Must be paired with `pop_off` to restore the original interrupt state.
+pub(crate) fn push_off() {
+    let old_sstatus = read_sstatus();
+    let old_sie = (old_sstatus & SSTATUS_SIE) != 0;
+    disable_interrupts();
+
+    let hartid = read_hartid();
+    if hartid >= MAX_HARTS {
+        panic!("push_off: invalid hartid {}", hartid);
+    }
+
+    if NOFF[hartid].load(Ordering::Relaxed) == 0 {
+        INTENA[hartid].store(old_sie, Ordering::Relaxed);
+    }
+    NOFF[hartid].fetch_add(1, Ordering::Relaxed);
+}
+
+/// Restores previous interrupt state when nested locks are fully released.
+///
+/// Decrements the nesting counter and re-enables interrupts if this is the
+/// final `pop_off` call (nesting counter reaches zero) and interrupts were
+/// originally enabled before the first `push_off`.
+/// Must be paired with a corresponding `push_off` call.
+pub(crate) fn pop_off() {
+    let hartid = read_hartid();
+    if hartid >= MAX_HARTS {
+        panic!("pop_off: invalid hartid {}", hartid);
+    }
+    if (read_sstatus() & SSTATUS_SIE) != 0 {
+        panic!("pop_off: interrupts enabled while holding spinlock");
+    }
+
+    let noff = NOFF[hartid].load(Ordering::Relaxed);
+    if noff == 0 {
+        panic!("pop_off: unbalanced unlock");
+    }
+    NOFF[hartid].store(noff - 1, Ordering::Relaxed);
+
+    if noff == 1 && INTENA[hartid].load(Ordering::Relaxed) {
+        enable_interrupts();
+    }
+}
+
+/// Reads the current Hart ID (`mhartid` or passed via `tp`/SBI).
+#[inline]
+pub(crate) fn read_hartid() -> usize {
+    let id: usize;
+    unsafe {
+        asm!("mv {}, tp", out(reg) id, options(nomem, nostack));
+    }
+    id
 }

@@ -12,7 +12,6 @@ use crate::mm::{KMEM, PGSIZE};
 use crate::println;
 
 use core::arch::asm;
-use core::cell::UnsafeCell;
 use core::hint::spin_loop;
 use core::ptr;
 
@@ -49,6 +48,10 @@ pub(crate) struct Task {
     /// Saved trap frame pointer used by timer preemption.
     pub(crate) trap_frame: *mut TrapFrame,
 }
+
+/// SAFETY: `Task` holds raw pointers (`*mut u8` and `*mut TrapFrame`) which do not
+/// implement `Send` by default. Thread safety is guaranteed via `SpinLock` synchronization.
+unsafe impl Send for Task {}
 
 impl Task {
     /// Creates a task slot in the unused state.
@@ -100,6 +103,10 @@ pub(crate) struct TaskManager {
     /// PID of the currently executing task, if any.
     current: Option<TaskId>,
 }
+
+/// SAFETY: Synchronized access to `TaskManager` via `SpinLock` prevents
+/// data races across multiple harts.
+unsafe impl Send for TaskManager {}
 
 impl TaskManager {
     /// Creates an empty task manager.
@@ -158,40 +165,15 @@ impl TaskManager {
     }
 }
 
-/// Thread-safe wrapper for the global scheduler state.
-pub(crate) struct SafeTaskManager(pub(crate) UnsafeCell<TaskManager>);
+use crate::sync::SpinLock;
 
-unsafe impl Sync for SafeTaskManager {}
-
-impl SafeTaskManager {
-    /// Returns a mutable reference to the inner `TaskManager`.
-    ///
-    /// # Safety
-    ///
-    /// Caller must guarantee exclusive access to the task manager state.
-    #[inline]
-    pub(crate) fn get_mut(&self) -> &mut TaskManager {
-        unsafe { &mut *self.0.get() }
-    }
-
-    /// Returns an immutable reference to the inner `TaskManager`.
-    ///
-    /// # Safety
-    ///
-    /// Caller must guarantee no concurrent mutable references exist.
-    #[inline]
-    pub(crate) fn get_ref(&self) -> &TaskManager {
-        unsafe { &*self.0.get() }
-    }
-}
-
-/// Shared singleton instance of the task manager.
-pub(crate) static TASK_MANAGER: SafeTaskManager =
-    SafeTaskManager(UnsafeCell::new(TaskManager::new()));
+/// Global task manager guarded by a spinlock.
+pub(crate) static TASK_MANAGER: SpinLock<TaskManager> =
+    SpinLock::new("task_manager", TaskManager::new());
 
 /// Returns the PID of the task currently scheduled on the CPU.
 pub(crate) fn current_task() -> Option<TaskId> {
-    TASK_MANAGER.get_ref().current
+    TASK_MANAGER.lock().current
 }
 
 /// Called by the trap handler on every supervisor timer interrupt.
@@ -203,7 +185,7 @@ pub(crate) fn current_task() -> Option<TaskId> {
 /// - `frame` must point to a valid `TrapFrame` allocated on the current task's kernel stack.
 /// - Returns a raw pointer to a valid `TrapFrame` that will be restored by `trap_return`.
 pub(crate) fn timer_tick(frame: &mut TrapFrame) -> *mut TrapFrame {
-    let manager = TASK_MANAGER.get_mut();
+    let mut manager = TASK_MANAGER.lock();
     let frame_ptr = frame as *mut TrapFrame;
 
     let current_pid = match manager.current {
@@ -258,15 +240,13 @@ pub(crate) fn task2() -> ! {
 /// Allocates private kernel stacks, constructs supervisor contexts, and registers
 /// initial tasks into the global task manager. Must be called during system boot.
 pub(crate) fn init() {
-    let manager = TASK_MANAGER.get_mut();
-
     // Allocate kernel stacks through updated MM interface.
-    let stack1 = KMEM.get_mut().kalloc();
+    let stack1 = KMEM.lock().kalloc();
     if stack1.is_null() {
         panic!("scheduler: failed to allocate stack1");
     }
 
-    let stack2 = KMEM.get_mut().kalloc();
+    let stack2 = KMEM.lock().kalloc();
     if stack2.is_null() {
         panic!("scheduler: failed to allocate stack2");
     }
@@ -278,25 +258,29 @@ pub(crate) fn init() {
     let boot_gp = read_gp();
     let boot_tp = read_tp();
 
-    let pid1 = manager
-        .create_task(
-            stack1,
-            task1 as *const () as usize,
-            boot_gp,
-            boot_tp,
-            initial_sstatus,
-        )
-        .expect("task::init: failed to create task1");
+    let (pid1, pid2) = {
+        let mut manager = TASK_MANAGER.lock();
+        let pid1 = manager
+            .create_task(
+                stack1,
+                task1 as *const () as usize,
+                boot_gp,
+                boot_tp,
+                initial_sstatus,
+            )
+            .expect("task::init: failed to create task1");
 
-    let pid2 = manager
-        .create_task(
-            stack2,
-            task2 as *const () as usize,
-            boot_gp,
-            boot_tp,
-            initial_sstatus,
-        )
-        .expect("task::init: failed to create task2");
+        let pid2 = manager
+            .create_task(
+                stack2,
+                task2 as *const () as usize,
+                boot_gp,
+                boot_tp,
+                initial_sstatus,
+            )
+            .expect("task::init: failed to create task2");
+        (pid1, pid2)
+    };
 
     println!("\nStarting preemptive scheduler...");
     println!("Task 1 PID: {}", pid1);
@@ -308,23 +292,26 @@ pub(crate) fn init() {
 /// Enables timer interrupts and performs context bootstrap into Task 1.
 /// This function never returns under normal operation.
 pub(crate) fn scheduler() -> ! {
-    let manager = TASK_MANAGER.get_mut();
+    let stack1 = {
+        let mut manager = TASK_MANAGER.lock();
+        let first_task = manager
+            .tasks
+            .first_mut()
+            .expect("scheduler: no tasks registered");
 
-    let first_task = manager
-        .tasks
-        .first_mut()
-        .expect("scheduler: no tasks registered");
+        let pid1 = first_task.pid;
+        let stack1 = first_task.kernel_stack;
 
-    let pid1 = first_task.pid;
-    let stack1 = first_task.kernel_stack;
+        manager.current = Some(pid1);
+        manager
+            .tasks
+            .iter_mut()
+            .find(|task| task.pid == pid1)
+            .expect("scheduler: task1 disappeared")
+            .state = TaskState::Running;
 
-    manager.current = Some(pid1);
-    manager
-        .tasks
-        .iter_mut()
-        .find(|task| task.pid == pid1)
-        .expect("scheduler: task1 disappeared")
-        .state = TaskState::Running;
+        stack1
+    };
 
     // Start periodic timer interrupts before entering the first task.
     timer::set_next_timer();

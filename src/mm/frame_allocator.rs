@@ -4,7 +4,6 @@
 //! stored directly inside free physical memory pages.
 
 use crate::println;
-use core::cell::UnsafeCell;
 use core::ptr;
 
 /// Size of a physical memory page (4 KiB).
@@ -49,6 +48,14 @@ pub(crate) struct Run {
 pub(crate) struct PhysicalMemoryAllocator {
     head: *mut Run,
 }
+
+// ============================================================================
+// Safety Implementations
+// ============================================================================
+
+/// SAFETY: Access to `PhysicalMemoryAllocator` and its raw pointer fields
+/// (`head: *mut Run`) is thread-safe when synchronized via `SpinLock`.
+unsafe impl Send for PhysicalMemoryAllocator {}
 
 impl PhysicalMemoryAllocator {
     /// Creates an empty allocator instance.
@@ -119,33 +126,18 @@ impl PhysicalMemoryAllocator {
 }
 
 /// Thread-safe wrapper enabling interior mutability for the global allocator singleton.
-pub(crate) struct SafeAllocator(pub(crate) UnsafeCell<PhysicalMemoryAllocator>);
+use crate::sync::SpinLock;
 
-unsafe impl Sync for SafeAllocator {}
-
-impl SafeAllocator {
-    /// Returns a mutable reference to the inner `PhysicalMemoryAllocator`.
-    ///
-    /// # Safety
-    ///
-    /// Caller must guarantee thread-safe access (e.g., single core or lock held).
-    #[inline]
-    pub(crate) fn get_mut(&self) -> &mut PhysicalMemoryAllocator {
-        unsafe { &mut *self.0.get() }
-    }
-}
-
-/// Global physical memory allocator instance.
-pub(crate) static KMEM: SafeAllocator =
-    SafeAllocator(UnsafeCell::new(PhysicalMemoryAllocator::new()));
+/// Global physical memory allocator wrapped in a thread-safe SpinLock.
+pub(crate) static KMEM: SpinLock<PhysicalMemoryAllocator> =
+    SpinLock::new("kmem", PhysicalMemoryAllocator::new());
 
 /// Initializes the kernel physical memory allocator.
 ///
 /// Populates the allocator's free list with all physical memory in range `[ekernel, PHYSTOP)`.
 pub(crate) fn kmem_init() {
     let start = ekernel_addr();
-
-    KMEM.get_mut().kinit(start, PHYSTOP);
+    KMEM.lock().kinit(start, PHYSTOP);
 
     println!(
         "kmem: physical memory allocator initialized [{:#018x}, {:#018x})",
