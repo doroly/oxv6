@@ -6,15 +6,16 @@
 mod arch;
 mod drivers;
 mod mm;
-mod task;
 mod sync;
+mod task;
 
+use crate::arch::riscv64::sbi::sbi_hart_start;
 use crate::drivers::{plic, uart};
+use crate::task::scheduler::scheduler;
+use arch::riscv64::boot::{_start, MAX_HARTS};
+use core::arch::asm;
 use core::panic::PanicInfo;
 use core::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
-use crate::arch::riscv64::sbi::sbi_hart_start;
-use core::arch::asm;
-use arch::riscv64::boot::{_start, MAX_HARTS};
 
 /// Handles unrecoverable kernel errors in a bare-metal environment.
 ///
@@ -102,7 +103,7 @@ pub extern "C" fn rust_main(hartid: usize) -> ! {
     arch::riscv64::trap::init();
 
     if is_primary {
-        task::scheduler();
+        scheduler();
     }
 
     loop {

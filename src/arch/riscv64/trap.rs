@@ -16,6 +16,7 @@ use crate::arch::riscv64::{csr, timer};
 use crate::drivers::plic;
 use crate::println;
 use core::arch::asm;
+use crate::task::scheduler::timer_tick;
 
 /// Register context saved when entering a Supervisor-mode trap.
 ///
@@ -286,7 +287,7 @@ pub extern "C" fn rust_trap_handler(frame: &mut TrapFrame) -> *mut TrapFrame {
             // Supervisor timer interrupt.
             5 => {
                 timer::set_next_timer();
-                return crate::task::timer_tick(frame);
+                return timer_tick(frame);
             }
             // Supervisor external interrupt.
             9 => {

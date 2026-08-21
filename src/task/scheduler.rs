@@ -5,94 +5,16 @@
 //! Preemptive task switching is driven by supervisor timer interrupts.
 
 use crate::arch::riscv64::context::Context;
-use crate::arch::riscv64::csr::{SSTATUS_SPIE, SSTATUS_SPP, enable_interrupts};
+use crate::arch::riscv64::csr::enable_interrupts;
 use crate::arch::riscv64::timer;
-use crate::arch::riscv64::trap::{TRAP_FRAME_SIZE, TrapFrame};
-use crate::mm::{KMEM, PGSIZE};
-use crate::println;
-
-use core::arch::asm;
+use crate::arch::riscv64::trap::TrapFrame;
+use crate::sync::SpinLock;
+use crate::task::proc::{KERNEL_STACK_SIZE, Task, TaskId, TaskState};
+use crate::task::task1;
 use core::hint::spin_loop;
-use core::ptr;
 
 /// Maximum number of tasks supported by the kernel at one time.
 pub(crate) const MAX_TASKS: usize = 2;
-
-/// Size of each kernel stack, matching one 4 KiB page.
-pub(crate) const KERNEL_STACK_SIZE: usize = PGSIZE;
-
-/// Task ID type.
-pub(crate) type TaskId = usize;
-
-/// Runtime state of a task.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(crate) enum TaskState {
-    /// The slot is currently unused.
-    Unused,
-    /// The task is ready to run when the scheduler selects it.
-    Runnable,
-    /// The task is currently executing on the CPU.
-    Running,
-    /// The task has exited and its slot is retained for bookkeeping.
-    Zombie,
-}
-
-/// A single task-control block (TCB).
-pub(crate) struct Task {
-    /// Stable integer identifier assigned at creation time.
-    pub(crate) pid: TaskId,
-    /// Current execution state for this task.
-    pub(crate) state: TaskState,
-    /// Base address of the task's private kernel stack.
-    pub(crate) kernel_stack: *mut u8,
-    /// Saved trap frame pointer used by timer preemption.
-    pub(crate) trap_frame: *mut TrapFrame,
-}
-
-/// SAFETY: `Task` holds raw pointers (`*mut u8` and `*mut TrapFrame`) which do not
-/// implement `Send` by default. Thread safety is guaranteed via `SpinLock` synchronization.
-unsafe impl Send for Task {}
-
-impl Task {
-    /// Creates a task slot in the unused state.
-    pub(crate) const fn empty() -> Self {
-        Self {
-            pid: 0,
-            state: TaskState::Unused,
-            kernel_stack: ptr::null_mut(),
-            trap_frame: ptr::null_mut(),
-        }
-    }
-
-    /// Builds a runnable task with an initial `TrapFrame` at the top of its stack.
-    pub(crate) fn new(
-        pid: TaskId,
-        kernel_stack: *mut u8,
-        entry: usize,
-        gp: usize,
-        tp: usize,
-        initial_sstatus: usize,
-    ) -> Self {
-        let stack_start = kernel_stack as usize;
-        let stack_top = stack_start + KERNEL_STACK_SIZE;
-        let frame_addr = stack_top - TRAP_FRAME_SIZE;
-        let frame_ptr = frame_addr as *mut TrapFrame;
-
-        unsafe {
-            ptr::write(
-                frame_ptr,
-                TrapFrame::for_kernel_task(entry, stack_top, gp, tp, initial_sstatus),
-            );
-        }
-
-        Self {
-            pid,
-            state: TaskState::Runnable,
-            kernel_stack,
-            trap_frame: frame_ptr,
-        }
-    }
-}
 
 /// Global scheduler state and task table.
 pub(crate) struct TaskManager {
@@ -165,8 +87,6 @@ impl TaskManager {
     }
 }
 
-use crate::sync::SpinLock;
-
 /// Global task manager guarded by a spinlock.
 pub(crate) static TASK_MANAGER: SpinLock<TaskManager> =
     SpinLock::new("task_manager", TaskManager::new());
@@ -215,78 +135,6 @@ pub(crate) fn timer_tick(frame: &mut TrapFrame) -> *mut TrapFrame {
     manager.tasks[next_index].trap_frame
 }
 
-/// Minimal kernel task 1 emitting a heartbeat message.
-pub(crate) fn task1() -> ! {
-    loop {
-        println!("[Task 1] running");
-        for _ in 0..4_000_000 {
-            spin_loop();
-        }
-    }
-}
-
-/// Minimal kernel task 2 verifying preemptive multitasking.
-pub(crate) fn task2() -> ! {
-    loop {
-        println!("[Task 2] running");
-        for _ in 0..4_000_000 {
-            spin_loop();
-        }
-    }
-}
-
-/// Initializes the task subsystem and registers initial kernel tasks.
-///
-/// Allocates private kernel stacks, constructs supervisor contexts, and registers
-/// initial tasks into the global task manager. Must be called during system boot.
-pub(crate) fn init() {
-    // Allocate kernel stacks through updated MM interface.
-    let stack1 = KMEM.lock().kalloc();
-    if stack1.is_null() {
-        panic!("scheduler: failed to allocate stack1");
-    }
-
-    let stack2 = KMEM.lock().kalloc();
-    if stack2.is_null() {
-        panic!("scheduler: failed to allocate stack2");
-    }
-
-    // Set up initial SSTATUS for tasks: SPP=1 (Supervisor mode) and SPIE=1 (Enable interrupts on sret).
-    let initial_sstatus = SSTATUS_SPP | SSTATUS_SPIE;
-
-    // Preserve boot-time GP and TP values.
-    let boot_gp = read_gp();
-    let boot_tp = read_tp();
-
-    let (pid1, pid2) = {
-        let mut manager = TASK_MANAGER.lock();
-        let pid1 = manager
-            .create_task(
-                stack1,
-                task1 as *const () as usize,
-                boot_gp,
-                boot_tp,
-                initial_sstatus,
-            )
-            .expect("task::init: failed to create task1");
-
-        let pid2 = manager
-            .create_task(
-                stack2,
-                task2 as *const () as usize,
-                boot_gp,
-                boot_tp,
-                initial_sstatus,
-            )
-            .expect("task::init: failed to create task2");
-        (pid1, pid2)
-    };
-
-    println!("\nStarting preemptive scheduler...");
-    println!("Task 1 PID: {}", pid1);
-    println!("Task 2 PID: {}", pid2);
-}
-
 /// Starts the preemptive task scheduler and transitions into the first task.
 ///
 /// Enables timer interrupts and performs context bootstrap into Task 1.
@@ -332,32 +180,4 @@ pub(crate) fn scheduler() -> ! {
     loop {
         spin_loop();
     }
-}
-
-/// Reads the global pointer (`gp`) register.
-#[inline]
-fn read_gp() -> usize {
-    let value: usize;
-    unsafe {
-        asm!(
-        "mv {}, gp",
-        out(reg) value,
-        options(nomem, nostack, preserves_flags),
-        );
-    }
-    value
-}
-
-/// Reads the thread pointer (`tp`) register.
-#[inline]
-fn read_tp() -> usize {
-    let value: usize;
-    unsafe {
-        asm!(
-        "mv {}, tp",
-        out(reg) value,
-        options(nomem, nostack, preserves_flags),
-        );
-    }
-    value
 }
