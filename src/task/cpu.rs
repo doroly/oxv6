@@ -2,6 +2,7 @@
 //! Per-core CPU management and context tracking for RISC-V multiprogramming.
 
 use crate::arch::riscv64::context::Context;
+use crate::sync::SpinLock;
 use crate::task::proc::TaskId;
 use core::arch::asm;
 
@@ -25,6 +26,10 @@ impl Cpu {
         }
     }
 }
+
+/// Array of all per-CPU structures guarded by SpinLock for safe concurrent access.
+pub(crate) static CPUS: SpinLock<[Cpu; MAX_CPUS]> =
+    SpinLock::new("cpus", [const { Cpu::new() }; MAX_CPUS]);
 
 /// Reads current Hart ID from the thread pointer (`tp`) register.
 #[inline]

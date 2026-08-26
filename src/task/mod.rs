@@ -7,14 +7,14 @@ pub(crate) mod scheduler;
 use crate::arch::riscv64::csr::{SSTATUS_SPIE, SSTATUS_SPP};
 use crate::mm::KMEM;
 use crate::println;
+use crate::task::scheduler::TASK_MANAGER;
 use core::arch::asm;
 use core::hint::spin_loop;
-use crate::task::scheduler::TASK_MANAGER;
 
 /// Minimal test task 1 demonstrating preemptive kernel thread execution.
 pub(crate) fn task1() -> ! {
     loop {
-        println!("[Task 1] running");
+        println!("[Task 1] running on CPU {}", cpu::mycpu_id());
         for _ in 0..4_000_000 {
             spin_loop();
         }
@@ -24,7 +24,17 @@ pub(crate) fn task1() -> ! {
 /// Minimal test task 2 verifying context switching routines.
 pub(crate) fn task2() -> ! {
     loop {
-        println!("[Task 2] running");
+        println!("[Task 2] running on CPU {}", cpu::mycpu_id());
+        for _ in 0..4_000_000 {
+            spin_loop();
+        }
+    }
+}
+
+/// Minimal test task 3 verifying context switching routines.
+pub(crate) fn task3() -> ! {
+    loop {
+        println!("[Task 3] running on CPU {}", cpu::mycpu_id());
         for _ in 0..4_000_000 {
             spin_loop();
         }
@@ -47,6 +57,11 @@ pub(crate) fn init() {
         panic!("scheduler: failed to allocate stack2");
     }
 
+    let stack3 = KMEM.lock().kalloc();
+    if stack3.is_null() {
+        panic!("scheduler: failed to allocate stack3");
+    }
+
     // Set up initial SSTATUS for tasks: SPP=1 (Supervisor mode) and SPIE=1 (Enable interrupts on sret).
     let initial_sstatus = SSTATUS_SPP | SSTATUS_SPIE;
 
@@ -54,7 +69,7 @@ pub(crate) fn init() {
     let boot_gp = read_gp();
     let boot_tp = read_tp();
 
-    let (pid1, pid2) = {
+    let (pid1, pid2,pid3) = {
         let mut manager = TASK_MANAGER.lock();
         let pid1 = manager
             .create_task(
@@ -75,12 +90,23 @@ pub(crate) fn init() {
                 initial_sstatus,
             )
             .expect("task::init: failed to create task2");
-        (pid1, pid2)
+
+        let pid3 = manager
+            .create_task(
+                stack3,
+                task3 as *const () as usize,
+                boot_gp,
+                boot_tp,
+                initial_sstatus,
+            )
+            .expect("task::init: failed to create task3");
+        (pid1, pid2, pid3)
     };
 
     println!("\nStarting preemptive scheduler...");
     println!("Task 1 PID: {}", pid1);
     println!("Task 2 PID: {}", pid2);
+    println!("Task 3 PID: {}", pid3);
 }
 
 /// Reads the global pointer (`gp`) register.

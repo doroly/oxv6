@@ -51,3 +51,12 @@ pub(crate) fn set_next_timer() {
     let now = read_time();
     set_timer(now + TIMER_INTERVAL);
 }
+
+/// Initializes the supervisor timer so that periodic interrupts begin.
+///
+/// This should be called once during kernel startup (e.g., before enabling interrupts).
+#[inline]
+pub(crate) fn init() {
+    // Program the first timer event.
+    set_next_timer();
+}

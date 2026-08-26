@@ -1,6 +1,7 @@
 #![allow(dead_code)]
 //! Task control block and state management.
 
+use crate::arch::riscv64::context::Context;
 use crate::arch::riscv64::trap::{TRAP_FRAME_SIZE, TrapFrame};
 use crate::mm::PGSIZE;
 use core::ptr;
@@ -34,10 +35,10 @@ pub(crate) struct Task {
     pub(crate) kernel_stack: *mut u8,
     /// Saved trap frame pointer used by timer preemption.
     pub(crate) trap_frame: *mut TrapFrame,
+    /// Kernel context saved for `swtch` context switches.
+    pub(crate) context: Context,
 }
 
-/// SAFETY: `Task` holds raw pointers (`*mut u8` and `*mut TrapFrame`) which do not
-/// implement `Send` by default. Thread safety is guaranteed via `SpinLock` synchronization.
 unsafe impl Send for Task {}
 
 impl Task {
@@ -48,10 +49,11 @@ impl Task {
             state: TaskState::Unused,
             kernel_stack: ptr::null_mut(),
             trap_frame: ptr::null_mut(),
+            context: Context::zero(),
         }
     }
 
-    /// Builds a runnable task with an initial `TrapFrame` at the top of its stack.
+    /// Builds a runnable task with an initial `TrapFrame` and kernel `Context`.
     pub(crate) fn new(
         pid: TaskId,
         kernel_stack: *mut u8,
@@ -77,6 +79,15 @@ impl Task {
             state: TaskState::Runnable,
             kernel_stack,
             trap_frame: frame_ptr,
+            // Points to the entry function entry, and the top of the stack is set to stack_top
+            context: Context::new(entry, stack_top),
+        }
+    }
+
+    /// Yields the current task, setting its state from Running back to Runnable.
+    pub(crate) fn yield_task(&mut self) {
+        if self.state == TaskState::Running {
+            self.state = TaskState::Runnable;
         }
     }
 }

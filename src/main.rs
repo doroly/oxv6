@@ -9,19 +9,16 @@ mod mm;
 mod sync;
 mod task;
 
+use crate::arch::riscv64::boot::{_start, MAX_HARTS};
 use crate::arch::riscv64::sbi::sbi_hart_start;
+use crate::arch::riscv64::{timer, trap};
 use crate::drivers::{plic, uart};
 use crate::task::scheduler::scheduler;
-use arch::riscv64::boot::{_start, MAX_HARTS};
 use core::arch::asm;
 use core::panic::PanicInfo;
 use core::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 
 /// Handles unrecoverable kernel errors in a bare-metal environment.
-///
-/// This panic hook is used by the kernel when a fatal invariant fails or an internal
-/// assumption is violated. It prints the panic location and message through the UART
-/// console and then halts the CPU in an infinite spin loop.
 #[panic_handler]
 fn panic(info: &PanicInfo) -> ! {
     println!("\n================ [KERNEL PANIC] ================");
@@ -51,12 +48,20 @@ static STARTED: AtomicBool = AtomicBool::new(false);
 /// Hart elected as primary bootstrap core.
 static PRIMARY_HART: AtomicUsize = AtomicUsize::new(usize::MAX);
 
-/// Kernel entry point reached from the assembly startup routine.
-///
-/// The boot code initializes the stack and branches into this function, which performs
-/// early platform setup before handing control to the scheduler. This function never returns.
+/// Writes current Hart ID into thread pointer (`tp`) register.
+#[inline]
+fn set_tp(hartid: usize) {
+    unsafe {
+        asm!("mv tp, {}", in(reg) hartid, options(nomem, nostack, preserves_flags));
+    }
+}
+
+/// Kernel entry point reached from assembly startup routine.
 #[unsafe(no_mangle)]
 pub extern "C" fn rust_main(hartid: usize) -> ! {
+    // Bind Hart ID to thread pointer register for Per-CPU context tracking
+    set_tp(hartid);
+
     let is_primary = PRIMARY_HART
         .compare_exchange(usize::MAX, hartid, Ordering::AcqRel, Ordering::Acquire)
         .is_ok();
@@ -72,6 +77,7 @@ pub extern "C" fn rust_main(hartid: usize) -> ! {
 
         plic::init();
         mm::kmem_init();
+        timer::init();
         task::init();
 
         println!(
@@ -79,7 +85,6 @@ pub extern "C" fn rust_main(hartid: usize) -> ! {
             hartid
         );
 
-        // Release other Secondary Harts
         STARTED.store(true, Ordering::Release);
 
         // Send SBI call to wake up secondary harts via OpenSBI HSM extension
@@ -89,8 +94,7 @@ pub extern "C" fn rust_main(hartid: usize) -> ! {
             }
         }
     } else {
-        // --- Secondary Harts (Hart 1, 2, 3...) ---
-        // Wait for Hart 0 to complete global hardware and memory initialization
+        // --- Secondary Harts ---
         while !STARTED.load(Ordering::Acquire) {
             core::hint::spin_loop();
         }
@@ -98,17 +102,11 @@ pub extern "C" fn rust_main(hartid: usize) -> ! {
         println!("[Hart {}] Secondary hart online!", hartid);
     }
 
-    // Per-hart local interrupt routing and trap setup.
     plic::init_hart(hartid);
-    arch::riscv64::trap::init();
+    trap::init();
 
-    if is_primary {
-        scheduler();
-    }
+    println!("[Hart {}] Entering scheduler loop...", hartid);
 
-    loop {
-        unsafe {
-            asm!("wfi", options(nomem, nostack, preserves_flags));
-        }
-    }
+    // All primary and secondary harts enter scheduler loop concurrently
+    scheduler();
 }

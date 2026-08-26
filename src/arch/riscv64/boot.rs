@@ -19,7 +19,7 @@ _start:
     la sp, boot_stack_lower_bound # Base of boot stack array
     slli t0, a0, 14               # hartid * 16 KiB
     li t1, 16384
-    add sp, sp, t0
+    add sp, sp, t0                # Move to this hart's stack base
     add sp, sp, t1                # Move to this hart's stack top
     call rust_main                # Jump to the Rust entry point
 

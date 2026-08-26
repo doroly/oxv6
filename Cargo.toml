@@ -1,9 +1,14 @@
 [package]
 name = "oxv6"
-version = "0.1.0"
+version = "0.8.1"
 edition = "2024"
 authors = ["doroly"]
 description = "🦀 A small RISC‑V learning operating system written in Rust"
+license = "MIT OR Apache-2.0"
+repository = "https://github.com/doroly/oxv6"
+readme = "README.md"
+keywords = ["os", "risc-v", "kernel", "bare-metal"]
+categories = ["no-std", "embedded", "os"]
 
 [[bin]]
 name = "oxv6"
@@ -14,6 +19,10 @@ harness = false    # Disable the default test framework that relies on std
 
 [profile.dev]
 panic = "abort"
+opt-level = 0  # No optimization for easier debugging
 
 [profile.release]
 panic = "abort"
+opt-level = 3    # Maximum optimization for release builds
+lto = true       # Link-time optimization to reduce binary size
+codegen-units = 1 # Better optimization at the cost of longer compilation time

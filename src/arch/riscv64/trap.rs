@@ -15,8 +15,8 @@
 use crate::arch::riscv64::{csr, timer};
 use crate::drivers::plic;
 use crate::println;
-use core::arch::asm;
 use crate::task::scheduler::timer_tick;
+use core::arch::asm;
 
 /// Register context saved when entering a Supervisor-mode trap.
 ///

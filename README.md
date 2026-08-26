@@ -38,9 +38,9 @@
 - [ ] File system (inode, directory, file descriptor)
 - [ ] Multi-hart (multi-core) support
 
-## Environment Setup (Ubuntu 20.04)
+## Environment Setup (Ubuntu 24.04)
 
-Follow these steps to set up the build and emulation environment on Ubuntu 20.04 LTS.
+Follow these steps to set up the build and emulation environment on Ubuntu 24.04 LTS.
 
 ### 1. Install System Dependencies & QEMU
 
