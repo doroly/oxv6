@@ -25,8 +25,9 @@
 - [x] Task context switching
 - [x] ~~Cooperative multitasking (deprecated)~~
 - [x] Preemptive multitasking
-- [x] Multihart
+- [x] Multi-hart (multi-core) support
 - [x] Spinlock
+- [x] Shell
 
 ### Future plans
 
@@ -36,7 +37,6 @@
 - [ ] System calls
 - [ ] Process management (fork, exec, exit, wait)
 - [ ] File system (inode, directory, file descriptor)
-- [ ] Multi-hart (multi-core) support
 
 ## Environment Setup (Ubuntu 24.04)
 
