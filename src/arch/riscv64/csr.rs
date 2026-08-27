@@ -5,9 +5,9 @@
 //! This module wraps the low-level `csrr` / `csrw` instructions used by the kernel to configure
 //! traps, interrupts, and the current execution state in S-mode.
 
+use crate::arch::riscv64::boot::MAX_HARTS;
 use core::arch::asm;
 use core::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
-use crate::arch::riscv64::boot::MAX_HARTS;
 
 /// `sstatus.SIE`.
 pub(crate) const SSTATUS_SIE: usize = 1 << 1;

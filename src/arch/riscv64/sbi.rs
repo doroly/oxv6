@@ -1,7 +1,7 @@
 //! Supervisor Binary Interface (SBI) calls.
 
 const SBI_EXT_HSM: usize = 0x48534D; // HSM Extension ID ("HSM")
-const SBI_HSM_HART_START: usize = 0;  // Function ID for hart_start
+const SBI_HSM_HART_START: usize = 0; // Function ID for hart_start
 
 /// Asynchronously starts execution on a secondary hart via OpenSBI.
 ///

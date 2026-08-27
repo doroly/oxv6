@@ -5,7 +5,7 @@
 //! This module establishes the initial stack pointer and transfers control to the Rust entry
 //! routine. The code runs before the kernel has initialized its memory allocator or scheduler.
 
-pub const MAX_HARTS: usize = 4;
+pub const MAX_HARTS: usize = 3;
 pub const BOOT_STACK_SIZE: usize = 16384; // 16 KiB per hart
 
 core::arch::global_asm!(
@@ -32,7 +32,7 @@ _start:
     .globl boot_stack_lower_bound # Export the stack lower bound symbol
 
 boot_stack_lower_bound:
-    .space 4096 * 4 * 4           # Reserve 16 KiB per hart (MAX_HARTS=4)
+    .space 4096 * 4 * 3           # Reserve 16 KiB per hart (MAX_HARTS=3)
 
     .globl boot_stack_top         # Export the stack top symbol
 

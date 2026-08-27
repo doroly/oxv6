@@ -4,6 +4,7 @@ use crate::arch::riscv64::context::{Context, switch};
 use crate::arch::riscv64::csr::enable_interrupts;
 use crate::arch::riscv64::timer;
 use crate::arch::riscv64::trap::TrapFrame;
+use crate::drivers::uart;
 use crate::sync::SpinLock;
 use crate::task::cpu::{CPUS, mycpu_id};
 use crate::task::proc::{Task, TaskId, TaskState};
@@ -103,6 +104,7 @@ pub(crate) fn timer_tick(frame: &mut TrapFrame) -> *mut TrapFrame {
 pub(crate) fn scheduler() -> ! {
     let hartid = mycpu_id();
     timer::set_next_timer();
+    uart::start_interrupts();
     enable_interrupts();
 
     loop {

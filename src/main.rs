@@ -35,7 +35,6 @@ fn panic(info: &PanicInfo) -> ! {
     }
 
     println!("Message:  {}", info.message());
-
     println!("================================================\n");
 
     loop {
@@ -59,7 +58,6 @@ fn set_tp(hartid: usize) {
 /// Kernel entry point reached from assembly startup routine.
 #[unsafe(no_mangle)]
 pub extern "C" fn rust_main(hartid: usize) -> ! {
-    // Bind Hart ID to thread pointer register for Per-CPU context tracking
     set_tp(hartid);
 
     let is_primary = PRIMARY_HART
@@ -67,46 +65,28 @@ pub extern "C" fn rust_main(hartid: usize) -> ! {
         .is_ok();
 
     if is_primary {
-        // --- Primary Hart (Boot Hart) ---
         uart::init();
-        println!("\n==============================");
-        println!("        oxv6 Kernel");
-        println!("==============================\n");
-        println!("Privilege Mode: Supervisor");
-        println!("\n[Hart {}] Booting oxv6 multi-core kernel...", hartid);
+        println!("xv6 kernel is booting\n");
 
         plic::init();
         mm::kmem_init();
         timer::init();
         task::init();
 
-        println!(
-            "[Hart {}] Initialization complete. Waking up secondary harts...",
-            hartid
-        );
-
-        STARTED.store(true, Ordering::Release);
-
-        // Send SBI call to wake up secondary harts via OpenSBI HSM extension
-        for target_hart in 0..MAX_HARTS {
-            if target_hart != hartid {
-                sbi_hart_start(target_hart, _start as *const () as usize, 0);
-            }
+        // Announce each secondary in deterministic order before allowing the
+        // schedulers to run the shell task.
+        for target_hart in 1..MAX_HARTS {
+            sbi_hart_start(target_hart, _start as *const () as usize, 0);
+            println!("hart {} starting", target_hart);
         }
+        STARTED.store(true, Ordering::Release);
     } else {
-        // --- Secondary Harts ---
         while !STARTED.load(Ordering::Acquire) {
             core::hint::spin_loop();
         }
-
-        println!("[Hart {}] Secondary hart online!", hartid);
     }
 
     plic::init_hart(hartid);
     trap::init();
-
-    println!("[Hart {}] Entering scheduler loop...", hartid);
-
-    // All primary and secondary harts enter scheduler loop concurrently
     scheduler();
 }

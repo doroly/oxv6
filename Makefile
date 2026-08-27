@@ -5,7 +5,7 @@ TARGET := riscv64gc-unknown-none-elf
 KERNEL_ELF := target/$(TARGET)/debug/oxv6
 
 # Number of CPU cores (harts) to simulate
-CPUS ?= 4
+CPUS ?= 3
 
 # QEMU emulator binary
 QEMU := qemu-system-riscv64

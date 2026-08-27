@@ -3,7 +3,6 @@
 //! Lightweight 4 KiB page allocator using an intrusive singly-linked list
 //! stored directly inside free physical memory pages.
 
-use crate::println;
 use core::ptr;
 
 /// Size of a physical memory page (4 KiB).
@@ -138,9 +137,4 @@ pub(crate) static KMEM: SpinLock<PhysicalMemoryAllocator> =
 pub(crate) fn kmem_init() {
     let start = ekernel_addr();
     KMEM.lock().kinit(start, PHYSTOP);
-
-    println!(
-        "kmem: physical memory allocator initialized [{:#018x}, {:#018x})",
-        start, PHYSTOP
-    );
 }
