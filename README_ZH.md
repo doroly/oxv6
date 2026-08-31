@@ -10,7 +10,7 @@
 - **目標架構**：RISC-V 64位元 (`riscv64gc-unknown-none-elf`)
 - **參考實現**：MIT xv6-riscv
 - **開發語言**：Rust (`no_std` 裸機開發環境)
-- **運行環境**：Linux (推薦 Ubuntu 20.04 LTS) / QEMU `virt`
+- **運行環境**：Linux (推薦 Ubuntu 24.04 LTS) / QEMU `virt`
 
 
 ## 功能

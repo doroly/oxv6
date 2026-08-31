@@ -10,7 +10,7 @@
 - **Target Architecture**: RISC-V 64-bit (`riscv64gc-unknown-none-elf`)
 - **Reference Model**: MIT xv6-riscv
 - **Language**: Rust (`no_std` bare-metal environment)
-- **Environment**: Linux (Ubuntu 20.04 LTS recommended) / QEMU `virt`
+- **Environment**: Linux (Ubuntu 24.04 LTS recommended) / QEMU `virt`
 
 ## Features
 
