@@ -1,7 +1,7 @@
 # oxv6：Rust RISC-V 作業系統
 [English](README.md) | [中文](README_ZH.md)
 
-`oxv6` 是一個使用 Rust 語言開發的 Unix-like 作業系統核心，設計靈感與架構參考 MIT 的 **xv6-riscv**。本專案針對 **RISC-V 64 (riscv64gc)** 架構設計，並運行於 **QEMU `virt`** 虛擬機平台。
+`oxv6` (**O**xidized **xv6**) 是一個使用 Rust 語言開發的 Unix-like 作業系統核心，設計靈感與架構參考 MIT 的 **xv6-riscv**。本專案針對 **RISC-V 64 (riscv64gc)** 架構設計，並運行於 **QEMU `virt`** 虛擬機平台。
 
 ---
 
@@ -13,31 +13,31 @@
 - **運行環境**：Linux (推薦 Ubuntu 24.04 LTS) / QEMU `virt`
 
 
-## 功能
+## 功能特性
 
 ### 已實現
 
-- [x] UART 主控台驅動
+- [x] UART 串口控制台驅動
 - [x] RISC-V Trap 與中斷處理
 - [x] 定時器中斷
-- [x] 外部硬件中斷
-- [x] 物理頁框分配器
-- [x] 核心任務管理
+- [x] 外部硬體中斷
+- [x] 實體記憶體頁分配器
+- [x] 虛擬記憶體管理
+- [x] SV39 三級頁表
+- [x] 內核任務管理
 - [x] 任務上下文切換
-- [x] ~~協作式多任務（已廢棄）~~
+- [x] ~~協同式多任務（已廢棄）~~
 - [x] 搶占式多任務
-- [x] 多核心（多 hart）支援
-- [x] 自旋鎖
-- [x] 控制臺
+- [x] 多核（Multi-hart）支援
+- [x] 自旋鎖（Spinlock）
+- [x] Shell 命令行
 
 ### 未來計劃
 
-- [ ] 虛擬記憶體管理
-- [ ] SV39 頁表
-- [ ] 使用者模式支援
-- [ ] 系統呼叫
-- [ ] 程序管理（fork、exec、exit、wait）
-- [ ] 檔案系統（inode、目錄、檔案描述符）
+- [ ] 用戶態（User mode）支援
+- [ ] 系統呼叫（System calls）
+- [ ] 進程管理（fork, exec, exit, wait）
+- [ ] 檔案系統（inode, directory, file descriptor）
 
 ## 開發環境安裝 (Ubuntu 24.04)
 

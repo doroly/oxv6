@@ -25,7 +25,7 @@ pub(crate) fn shell_task() -> ! {
             .iter()
             .position(|&ch| ch == b'\n')
             .unwrap_or_else(|| count);
-        
+
         if command_len != 0 {
             print!("Running command: '");
             console::write(&line[..command_len]);

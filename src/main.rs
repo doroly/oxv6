@@ -70,8 +70,11 @@ pub extern "C" fn rust_main(hartid: usize) -> ! {
 
         plic::init();
         mm::kmem_init();
-        timer::init();
+        mm::kvminit();
+        mm::kvminithart();
         task::init();
+        trap::init();
+        timer::init();
 
         // Announce each secondary in deterministic order before allowing the
         // schedulers to run the shell task.
@@ -86,6 +89,7 @@ pub extern "C" fn rust_main(hartid: usize) -> ! {
         }
     }
 
+    mm::kvminithart();
     plic::init_hart(hartid);
     trap::init();
     scheduler();

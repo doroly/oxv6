@@ -1,7 +1,7 @@
 # oxv6: Rust RISC-V Operating System
 [English](README.md) | [中文](README_ZH.md)
 
-`oxv6` is a Unix-like operating system kernel written in Rust, inspired by MIT's **xv6-riscv**. It targets the **RISC-V 64 (riscv64gc)** architecture and runs on the **QEMU `virt`** machine platform.
+`oxv6` (**O**xidized **xv6**) is a Unix-like operating system kernel written in Rust, inspired by MIT's **xv6-riscv**. It targets the **RISC-V 64 (riscv64gc)** architecture and runs on the **QEMU `virt`** machine platform.
 
 ---
 
@@ -21,6 +21,8 @@
 - [x] Timer interrupt
 - [x] External hardware interrupts
 - [x] Physical memory page allocator
+- [x] Virtual memory management
+- [x] SV39 page table
 - [x] Kernel task management
 - [x] Task context switching
 - [x] ~~Cooperative multitasking (deprecated)~~
@@ -31,8 +33,6 @@
 
 ### Future plans
 
-- [ ] Virtual memory management
-- [ ] SV39 page table
 - [ ] User mode support
 - [ ] System calls
 - [ ] Process management (fork, exec, exit, wait)

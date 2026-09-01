@@ -319,6 +319,14 @@ pub(crate) unsafe fn write_satp(value: usize) {
     }
 }
 
+/// Flush all local TLB entries after changing address translation state.
+#[inline]
+pub(crate) fn sfence_vma() {
+    unsafe {
+        asm!("sfence.vma zero, zero", options(nostack, preserves_flags));
+    }
+}
+
 /// Per-hart nesting counter for interrupt disable depth.
 /// Tracks how many times interrupts have been disabled on each hart.
 static NOFF: [AtomicUsize; MAX_HARTS] = [const { AtomicUsize::new(0) }; MAX_HARTS];

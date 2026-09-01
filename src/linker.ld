@@ -30,6 +30,9 @@ SECTIONS
         *(.text .text.*)
     }
 
+    . = ALIGN(4096);
+    etext = .;
+
     /* Read-only data section (e.g., string literals, constants). */
     .rodata : ALIGN(4)
     {

@@ -308,9 +308,7 @@ pub extern "C" fn rust_trap_handler(frame: &mut TrapFrame) -> *mut TrapFrame {
     println!("stval  = {:#018x}", csr::read_stval());
     println!("====================================");
 
-    loop {
-        core::hint::spin_loop();
-    }
+    panic!("unhandled trap: scause={:#x}", cause);
 }
 
 /// Reads the thread pointer (`tp`) register to obtain the current Hart ID.

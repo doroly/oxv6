@@ -1,5 +1,3 @@
-#![allow(dead_code)]
-
 //! Saved task context for RISC-V kernel threads.
 //!
 //! The kernel stores the callee-saved registers required by the RISC-V ABI in this structure
