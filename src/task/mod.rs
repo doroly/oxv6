@@ -6,32 +6,25 @@ pub(crate) mod scheduler;
 pub(crate) mod shell;
 
 use crate::arch::riscv64::csr::{SSTATUS_SPIE, SSTATUS_SPP};
-use crate::mm::KMEM;
+use crate::mm::kstack;
 use crate::task::scheduler::TASK_MANAGER;
 use core::arch::asm;
 
-/// Initializes the task subsystem and registers the interactive shell task.
+/// Initialize the task management subsystem and launch the initial shell task.
 ///
-/// Allocates a private kernel stack, constructs a supervisor context, and
-/// registers the shell as the only initial user-space task.
+/// Under the virtual memory model, process kernel stacks are pre-allocated and
+/// mapped during page table creation (`kvmmake`). This function sets up task
+/// contexts using their designated virtual memory stack addresses rather than
+/// allocating dynamic physical frames at runtime.
 pub(crate) fn init() {
-    let shell_stack = KMEM.lock().kalloc();
-    if shell_stack.is_null() {
-        panic!("task::init: failed to allocate shell stack");
-    }
-
-    let initial_sstatus = SSTATUS_SPP | SSTATUS_SPIE;
-    let boot_gp = read_gp();
-    let boot_tp = read_tp();
-
-    let mut manager = TASK_MANAGER.lock();
-    manager
+    TASK_MANAGER
+        .lock()
         .create_task(
-            shell_stack,
+            kstack(0) as *mut u8,
             shell::shell_task as *const () as usize,
-            boot_gp,
-            boot_tp,
-            initial_sstatus,
+            read_gp(),
+            read_tp(),
+            SSTATUS_SPP | SSTATUS_SPIE,
         )
         .expect("task::init: failed to create shell task");
 }

@@ -309,7 +309,7 @@ pub(crate) fn read_satp() -> usize {
 
 /// Write `satp`.
 #[inline]
-pub(crate) unsafe fn write_satp(value: usize) {
+pub(crate) fn write_satp(value: usize) {
     unsafe {
         asm!(
         "csrw satp, {}",

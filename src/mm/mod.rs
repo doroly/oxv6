@@ -18,12 +18,19 @@ pub(crate) type Pte = usize;
 /// A Sv39 page table consists of 512 entries (each 8 bytes, totaling 4096 bytes per page).
 pub(crate) type PageTable = [Pte; 512];
 
+/// Maximum number of processes/tasks supported by the system (xv6 default).
+pub(crate) const NPROC: usize = 64;
+
+/// Kernel trampoline virtual address, used for context switching and trap handling.
+pub(crate) const TRAMPOLINE: usize = MAXVA - PGSIZE;
+
 // Core memory layout constants for RISC-V QEMU virt machine.
 pub(crate) const KERNBASE: usize = 0x8020_0000; // Base physical address of kernel image
 const UART0: usize = 0x1000_0000; // MMIO address for UART console
+const VIRTIO0: usize = 0x1000_1000; // MMIO address for VirtIO disk controller
 const PLIC: usize = 0x0c00_0000; // Platform Level Interrupt Controller base
 const PLIC_SIZE: usize = 0x0040_0000; // PLIC MMIO region size (4MB)
-const MAXVA: usize = 1 << 39; // Max virtual address in Sv39 mode (512 GB)
+const MAXVA: usize = 1 << 38; // Sv39 maximum canonical VA bound (256 GB)
 
 // Page Table Entry (PTE) Permission and Status Flags (RISC-V Privileged Architecture Spec).
 const PTE_V: usize = 1 << 0; // Valid: indicates the entry is active and valid
@@ -48,6 +55,15 @@ static KERNEL_PAGETABLE: AtomicUsize = AtomicUsize::new(0);
 #[inline]
 const fn px(level: usize, va: usize) -> usize {
     (va >> (12 + level * 9)) & 0x1ff
+}
+
+/// Calculate the virtual address for the kernel stack of process `i`.
+///
+/// In Sv39, kernel stacks are placed below TRAMPOLINE.
+/// Each process kernel stack is separated by an unmapped guard page to catch overflows.
+#[inline]
+pub(crate) const fn kstack(i: usize) -> usize {
+    TRAMPOLINE - (i + 1) * 2 * PGSIZE
 }
 
 /// Convert a page-table entry (PTE) to its corresponding physical address (PA).
@@ -76,11 +92,12 @@ pub(crate) fn walk(mut pagetable: *mut PageTable, va: usize, alloc: bool) -> Opt
     }
 
     // Traverse page table levels downwards: Level 2 (root) -> Level 1 -> Level 0 (leaf)
-    for level in (1..=2).rev() {
+    for level in [2, 1] {
         // Compute raw pointer to current level's PTE without creating temporary Rust references,
         // preventing Undefined Behavior (UB) on uninitialized memory regions.
-        let pte = unsafe { ptr::addr_of_mut!((*pagetable)[px(level, va)]) };
-        let entry = unsafe { *pte };
+        let index = px(level, va);
+        let pte = unsafe { &mut (*pagetable)[index] as *mut Pte };
+        let entry = unsafe { ptr::read(pte) };
 
         if entry & PTE_V != 0 {
             // Intermediate PTE exists and is valid; descend to next level page table.
@@ -95,7 +112,7 @@ pub(crate) fn walk(mut pagetable: *mut PageTable, va: usize, alloc: bool) -> Opt
                 // Zero-out the newly allocated page table frame.
                 ptr::write_bytes(page, 0, PGSIZE);
                 // Mark current level entry valid and point it to the new next-level table.
-                *pte = pa2pte(page as usize) | PTE_V;
+                ptr::write(pte, pa2pte(page as usize) | PTE_V);
             }
             pagetable = page as *mut PageTable;
         } else {
@@ -105,7 +122,8 @@ pub(crate) fn walk(mut pagetable: *mut PageTable, va: usize, alloc: bool) -> Opt
     }
 
     // Return raw pointer to the target Level 0 PTE.
-    Some(unsafe { ptr::addr_of_mut!((*pagetable)[px(0, va)]) })
+    let index = px(0, va);
+    Some(unsafe { &mut (*pagetable)[index] as *mut Pte })
 }
 
 /// Map a continuous virtual memory region `[va, va + size)` to physical addresses starting at `pa`.
@@ -160,13 +178,16 @@ pub(crate) fn kvmmake() -> *mut PageTable {
     // 1. Map UART MMIO region (Read + Write)
     mappages(pagetable, UART0, PGSIZE, UART0, PTE_R | PTE_W);
 
-    // 2. Map PLIC MMIO region (Read + Write)
+    // 2. Map VirtIO MMIO region (Read + Write)
+    mappages(pagetable, VIRTIO0, PGSIZE, VIRTIO0, PTE_R | PTE_W);
+
+    // 3. Map PLIC MMIO region (Read + Write)
     mappages(pagetable, PLIC, PLIC_SIZE, PLIC, PTE_R | PTE_W);
 
     #[allow(unused_unsafe)]
     let text_end = unsafe { ptr::addr_of!(etext) as usize };
 
-    // 3. Map Kernel Text section (Read + Execute)
+    // 4. Map Kernel Text section (Read + Execute)
     mappages(
         pagetable,
         KERNBASE,
@@ -175,7 +196,7 @@ pub(crate) fn kvmmake() -> *mut PageTable {
         PTE_R | PTE_X,
     );
 
-    // 4. Map Kernel Data and dynamic heap region up to PHYSTOP (Read + Write)
+    // 5. Map Kernel Data and dynamic heap region up to PHYSTOP (Read + Write)
     mappages(
         pagetable,
         text_end,
@@ -183,6 +204,15 @@ pub(crate) fn kvmmake() -> *mut PageTable {
         text_end,
         PTE_R | PTE_W,
     );
+
+    // 6. Map kernel stacks for all processes (Read + Write)
+    for i in 0..NPROC {
+        let pa = KMEM.lock().kalloc();
+        if pa.is_null() {
+            panic!("kvmmake: kalloc failed for proc stack");
+        }
+        mappages(pagetable, kstack(i), PGSIZE, pa as usize, PTE_R | PTE_W);
+    }
 
     pagetable
 }
@@ -205,7 +235,7 @@ pub(crate) fn kvminithart() {
     csr::sfence_vma();
 
     // Configure satp register: Mode = 8 (Sv39), PPN = pagetable >> 12
-    unsafe { csr::write_satp((8usize << 60) | (pagetable >> 12)) };
+    csr::write_satp((8usize << 60) | (pagetable >> 12));
 
     // Flush TLB after loading the new address space.
     csr::sfence_vma();
